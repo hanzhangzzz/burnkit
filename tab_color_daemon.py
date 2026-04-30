@@ -228,7 +228,11 @@ async def watch_idle_dir(connection):
 # ------------------------------------------------------------------ #
 
 async def color_poller(connection):
-    """每 POLL_INTERVAL 秒检查空闲时长，按需升级颜色。"""
+    """
+    每 POLL_INTERVAL 秒：
+    - 升级颜色（绿 → 黄 → 红）
+    - 管理活跃 tab（活跃的去色，非活跃的补色）
+    """
     log(f"守护进程启动 ✅  监听间隔=1s  轮询间隔={POLL_INTERVAL}s  "
         f"黄色阈值={CFG['THRESHOLD_YELLOW']}min  红色阈值={CFG['THRESHOLD_RED']}min")
 
@@ -238,6 +242,7 @@ async def color_poller(connection):
             now = time.time()
             states = read_state_files()
             idle_count = len(states)
+            app = await iterm2.async_get_app(connection)
 
             for path, state in states.items():
                 sid        = state.get("iterm2_session", "")
@@ -247,14 +252,26 @@ async def color_poller(connection):
                 if not sid:
                     continue
 
+                uuid = extract_uuid(sid)
+                session = app.get_session_by_id(uuid)
+                if session is None:
+                    continue
+
                 idle_seconds = now - idle_since
                 new_stage    = compute_color_stage(idle_seconds)
+                active       = is_active_tab(app, session)
 
+                # 升级颜色
                 if new_stage != prev_stage:
-                    log(f"session {extract_uuid(sid)[:8]}… "
+                    log(f"session {uuid[:8]}… "
                         f"idle {idle_seconds/60:.1f}min → {prev_stage} → {new_stage}")
-                    await apply_tab_color(connection, sid, color_for_stage(new_stage))
                     update_stage_file(path, state, new_stage)
+
+                # 活跃 tab 去色，非活跃 tab 补色
+                if active:
+                    await apply_tab_color(connection, sid, None)
+                else:
+                    await apply_tab_color(connection, sid, color_for_stage(new_stage))
 
             if 0 < idle_count < CONCURRENT_TARGET:
                 log(f"提示：当前 {idle_count} 个 tab 等待中，"
@@ -271,69 +288,9 @@ async def color_poller(connection):
 #  入口
 # ------------------------------------------------------------------ #
 
-async def active_tab_watcher(connection):
-    """
-    每 2 秒检查活跃 tab 变化：
-    - 切走一个 idle tab → 补上它的状态色
-    - 切到一个 idle tab → 去掉颜色（保持白色）
-    """
-    prev_active_tab_ids: set[str] = set()
-
-    while True:
-        await asyncio.sleep(0.5)
-        try:
-            app = await iterm2.async_get_app(connection)
-
-            # 收集当前所有窗口的活跃 tab
-            cur_active_tab_ids: set[str] = set()
-            for window in app.windows:
-                ct = window.current_tab
-                if ct:
-                    cur_active_tab_ids.add(ct.tab_id)
-
-            # 加载所有 idle session 的 tab_id → color 映射
-            idle_tab_colors: dict[str, tuple[str, iterm2.Color]] = {}
-            for state in read_state_files().values():
-                sid = state.get("iterm2_session", "")
-                if not sid:
-                    continue
-                uuid = extract_uuid(sid)
-                session = app.get_session_by_id(uuid)
-                if session is None or session.tab is None:
-                    continue
-                tab_id = session.tab.tab_id
-                stage = state.get("color_stage", "green")
-                idle_tab_colors[tab_id] = (sid, color_for_stage(stage))
-
-            # 切走的 tab（之前活跃，现在不活跃）→ 补色
-            gone_active = prev_active_tab_ids - cur_active_tab_ids
-            for tab_id in gone_active:
-                if tab_id in idle_tab_colors:
-                    sid, color = idle_tab_colors[tab_id]
-                    log(f"tab 切走 → 补色 {extract_uuid(sid)[:8]}…")
-                    await apply_tab_color(connection, sid, color)
-
-            # 切到的 tab（现在活跃，之前不活跃）→ 去色
-            new_active = cur_active_tab_ids - prev_active_tab_ids
-            for tab_id in new_active:
-                if tab_id in idle_tab_colors:
-                    sid, _ = idle_tab_colors[tab_id]
-                    log(f"tab 切入 → 去色 {extract_uuid(sid)[:8]}…")
-                    await apply_tab_color(connection, sid, None)
-
-            prev_active_tab_ids = cur_active_tab_ids
-
-        except Exception as e:
-            log(f"active tab watch 出错: {e}")
-            if "close" in str(e).lower() or "connection" in str(e).lower():
-                log("连接已断，退出等待 launchd 重启")
-                return
-
-
 async def main(connection):
     asyncio.create_task(watch_idle_dir(connection))
     asyncio.create_task(color_poller(connection))
-    asyncio.create_task(active_tab_watcher(connection))
     await asyncio.Event().wait()
 
 
