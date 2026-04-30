@@ -84,7 +84,8 @@ if [ "$HOOK_EVENT" = "Stop" ]; then
     TIMESTAMP=$(date +%s)
     STATE_FILE="$IDLE_STATE_DIR/${CLAUDE_SESSION}.json"
     python3 - <<EOF
-import json
+import json, glob, os
+
 data = {
     "iterm2_session": "$ITERM_SESSION_ID",
     "claude_session": "$CLAUDE_SESSION",
@@ -93,6 +94,29 @@ data = {
 }
 with open("$STATE_FILE", "w") as f:
     json.dump(data, f)
+
+# 清理同 tab 的旧 state 文件（--resume 后旧 pane 残留）
+# ITERM_SESSION_ID 格式: w0t0p0:UUID → 提取 tab 前缀 "w0t"
+cur_session = "$ITERM_SESSION_ID"
+if ":" in cur_session:
+    tab_prefix = cur_session.split(":")[0].rsplit("p", 1)[0]  # "w0t0p0" → "w0t0"
+else:
+    tab_prefix = ""
+
+if tab_prefix:
+    state_dir = "$IDLE_STATE_DIR"
+    for f in glob.glob(os.path.join(state_dir, "*.json")):
+        if f == "$STATE_FILE":
+            continue
+        try:
+            with open(f) as fp:
+                d = json.load(fp)
+            other_session = d.get("iterm2_session", "")
+            # 同 tab = 同 wXtY 前缀
+            if other_session and tab_prefix in other_session:
+                os.unlink(f)
+        except (json.JSONDecodeError, OSError):
+            pass
 EOF
 
 # ---- PreToolUse 事件：用户开始输入 → 重置颜色 + 清除时间戳 ----

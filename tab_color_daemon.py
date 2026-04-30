@@ -4,12 +4,12 @@ iTerm2 Tab Color Daemon
 ======================
 守护进程脚本，通过 launchd 在登录时自动启动。
 
-职责：
-  - 监听 ~/.claude/idle_state/ 目录变化，有新文件立即响应
-  - 新状态文件出现（Stop hook 写入）→ 立即用 API 设绿色
-  - 每 POLL_INTERVAL 秒轮询，根据空闲时长升级颜色：黄 → 红
-  - 状态文件被删除（PreToolUse hook）→ 立即恢复默认色
-  - launchd KeepAlive=true 保证退出后自动重启
+架构：单一写入者
+  - watch (500ms)：唯一负责写 tab 颜色的循环
+    读 state 文件 → 根据色阶 + 活跃状态 → 应用颜色
+  - poller (30s)：只更新 state 文件的元数据
+    孤儿清理、同 tab 去重、色阶升级（green → yellow → red）
+    绝不直接操作 iTerm2 API
 
 配置：同目录 config.sh
 """
@@ -98,28 +98,24 @@ def is_active_tab(app, session) -> bool:
         return False
 
 
-async def apply_tab_color(connection, iterm2_session_id: str, color: iterm2.Color | None):
+async def apply_tab_color(connection, iterm2_session_id: str, color, *, app=None, session=None):
     """
     给同一 tab 下所有 pane 都设 tab color。
-    活跃 tab 不上色（保持白色），切走后再着色 → 一眼看出当前 tab。
-    color=None 表示重置（恢复活跃/关闭），无论是否活跃都执行。
+    color=None 表示重置（恢复默认色）。
+    活跃 tab 上色时跳过（用户已经在看了）。
     """
     uuid = extract_uuid(iterm2_session_id)
-    app = await iterm2.async_get_app(connection)
-    session = app.get_session_by_id(uuid)
+    if app is None or session is None:
+        app = await iterm2.async_get_app(connection)
+        session = app.get_session_by_id(uuid)
     if session is None:
         return
 
-    # 设色时跳过活跃 tab（用户已经在这了，不需要通知）
     if color is not None and is_active_tab(app, session):
         return
 
-    # 找到目标 session 所在 tab 的所有 session（包括分屏 pane）
     target_tab = session.tab
-    if target_tab is None:
-        target_sessions = [session]
-    else:
-        target_sessions = list(target_tab.sessions)
+    target_sessions = [session] if target_tab is None else list(target_tab.sessions)
 
     for s in target_sessions:
         change = iterm2.LocalWriteOnlyProfile()
@@ -136,8 +132,7 @@ def compute_color_stage(idle_seconds: float) -> str:
         return "red"
     elif idle_seconds >= THRESHOLD_YELLOW_SEC:
         return "yellow"
-    else:
-        return "green"
+    return "green"
 
 
 def color_for_stage(stage: str) -> iterm2.Color:
@@ -166,19 +161,21 @@ def update_stage_file(path: str, state: dict, stage: str):
 
 
 # ------------------------------------------------------------------ #
-#  目录监听：用轮询检测新增/删除文件，立即响应
+#  watch：唯一的颜色写入者（1s 周期）
 # ------------------------------------------------------------------ #
 
 async def watch_idle_dir(connection):
     """
-    每秒扫描 idle_state 目录：
-    - 启动时对所有已有文件按当前空闲时长立即设色
-    - 新文件（Stop hook 刚写入）→ 立即设绿
-    - 文件消失（PreToolUse hook 删除）→ 立即重置
+    每秒扫描，唯一负责 iTerm2 API 调用的循环。
+
+    逻辑：
+    - 有 state 文件 + 非活跃 tab → 按 color_stage 上色
+    - 有 state 文件 + 活跃 tab   → 重置（白色）
+    - 无 state 文件（刚删除）     → 重置（白色）
     """
     known: dict[str, dict] = {}
 
-    # 启动时强制刷新所有已有文件
+    # 启动恢复：对所有已有文件按当前空闲时长设色
     now = time.time()
     for path, state in read_state_files().items():
         sid = state.get("iterm2_session", "")
@@ -186,52 +183,81 @@ async def watch_idle_dir(connection):
             continue
         idle_seconds = now - state.get("idle_since", now)
         stage = compute_color_stage(idle_seconds)
-        log(f"启动恢复: session {extract_uuid(sid)[:8]}… "
-            f"idle {idle_seconds/60:.1f}min → {stage}")
-        await apply_tab_color(connection, sid, color_for_stage(stage))
         update_stage_file(path, state, stage)
+        log(f"启动恢复: session {extract_uuid(sid)[:8]}… idle {idle_seconds/60:.1f}min → {stage}")
         known[path] = state
 
+    # 启动后立即做一次全量上色
+    await _apply_all_colors(connection)
+
     while True:
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
         try:
             current = read_state_files()
 
-            # 新出现的文件 → 立即设绿
-            for path, state in current.items():
-                if path not in known:
-                    sid = state.get("iterm2_session", "")
-                    if sid:
-                        log(f"新 idle session {extract_uuid(sid)[:8]}… → green")
-                        await apply_tab_color(connection, sid, COLOR_GREEN)
-                        update_stage_file(path, state, "green")
-
-            # 消失的文件 → 立即重置
+            # 消失的文件 → 记住 session 以便重置
+            disappeared = []
             for path, state in known.items():
                 if path not in current:
                     sid = state.get("iterm2_session", "")
                     if sid:
                         log(f"session {extract_uuid(sid)[:8]}… 恢复活跃 → 重置颜色")
-                        await apply_tab_color(connection, sid, None)
+                        disappeared.append(sid)
 
             known = current
+
+            # 全量刷新颜色：每个 state 文件根据 活跃/非活跃 决定颜色
+            await _apply_all_colors(connection)
+
+            # 重置已消失的 session
+            for sid in disappeared:
+                await apply_tab_color(connection, sid, None)
+
         except Exception as e:
             log(f"watch 出错: {e}")
-            # 连接断开，退出让 launchd 重启
             if "close" in str(e).lower() or "connection" in str(e).lower():
                 log("连接已断，退出等待 launchd 重启")
                 return
 
 
+async def _apply_all_colors(connection):
+    """读所有 state 文件，根据 color_stage + is_active 统一应用颜色。"""
+    states = read_state_files()
+    if not states:
+        return
+
+    app = await iterm2.async_get_app(connection)
+
+    for path, state in states.items():
+        sid = state.get("iterm2_session", "")
+        if not sid:
+            continue
+        uuid = extract_uuid(sid)
+        session = app.get_session_by_id(uuid)
+        if session is None:
+            continue
+
+        active = is_active_tab(app, session)
+        stage = state.get("color_stage", "green")
+
+        if active:
+            await apply_tab_color(connection, sid, None, app=app, session=session)
+        else:
+            await apply_tab_color(connection, sid, color_for_stage(stage), app=app, session=session)
+
+
 # ------------------------------------------------------------------ #
-#  定时轮询：处理黄/红升级
+#  poller：只更新 state 文件，不碰颜色（30s 周期）
 # ------------------------------------------------------------------ #
 
 async def color_poller(connection):
     """
-    每 POLL_INTERVAL 秒：
-    - 升级颜色（绿 → 黄 → 红）
-    - 管理活跃 tab（活跃的去色，非活跃的补色）
+    每 POLL_INTERVAL 秒更新 state 文件元数据：
+    - 清理孤儿 state 文件（iTerm2 session 已不存在）
+    - 同 tab 多 session 去重（只保留最新 idle_since）
+    - 升级 color_stage（green → yellow → red）
+
+    绝不直接调用 iTerm2 API 设色 —— 那是 watch 的职责。
     """
     log(f"守护进程启动 ✅  监听间隔=1s  轮询间隔={POLL_INTERVAL}s  "
         f"黄色阈值={CFG['THRESHOLD_YELLOW']}min  红色阈值={CFG['THRESHOLD_RED']}min")
@@ -241,38 +267,67 @@ async def color_poller(connection):
         try:
             now = time.time()
             states = read_state_files()
-            idle_count = len(states)
             app = await iterm2.async_get_app(connection)
 
-            for path, state in states.items():
-                sid        = state.get("iterm2_session", "")
-                idle_since = state.get("idle_since", now)
-                prev_stage = state.get("color_stage", "green")
-
+            # ---- 1. 清理孤儿文件 ----
+            for path, state in list(states.items()):
+                sid = state.get("iterm2_session", "")
                 if not sid:
                     continue
+                uuid = extract_uuid(sid)
+                if app.get_session_by_id(uuid) is None:
+                    log(f"清理孤儿: {uuid[:8]}… iTerm2 session 已不存在")
+                    try:
+                        Path(path).unlink()
+                    except OSError:
+                        pass
+                    states.pop(path, None)
 
+            # ---- 2. 同 tab 多 session 去重 ----
+            tab_sessions: dict[str, tuple[str, dict]] = {}
+            for path, state in list(states.items()):
+                sid = state.get("iterm2_session", "")
+                if not sid:
+                    continue
                 uuid = extract_uuid(sid)
                 session = app.get_session_by_id(uuid)
-                if session is None:
+                if session is None or session.tab is None:
                     continue
+                tab_id = session.tab.tab_id
+                if tab_id in tab_sessions:
+                    _, existing_state = tab_sessions[tab_id]
+                    if state.get("idle_since", 0) > existing_state.get("idle_since", 0):
+                        old_path = tab_sessions[tab_id][0]
+                        log(f"同 tab 去重: 删除旧 session {extract_uuid(states[old_path].get('iterm2_session',''))[:8]}…")
+                        try:
+                            Path(old_path).unlink()
+                        except OSError:
+                            pass
+                        states.pop(old_path, None)
+                        tab_sessions[tab_id] = (path, state)
+                    else:
+                        log(f"同 tab 去重: 删除旧 session {uuid[:8]}…")
+                        try:
+                            Path(path).unlink()
+                        except OSError:
+                            pass
+                        states.pop(path, None)
+                else:
+                    tab_sessions[tab_id] = (path, state)
 
+            # ---- 3. 升级 color_stage（只改文件，不改颜色）----
+            for path, state in states.items():
+                idle_since = state.get("idle_since", now)
+                prev_stage = state.get("color_stage", "green")
                 idle_seconds = now - idle_since
-                new_stage    = compute_color_stage(idle_seconds)
-                active       = is_active_tab(app, session)
+                new_stage = compute_color_stage(idle_seconds)
 
-                # 升级颜色
                 if new_stage != prev_stage:
-                    log(f"session {uuid[:8]}… "
+                    log(f"session {extract_uuid(state.get('iterm2_session',''))[:8]}… "
                         f"idle {idle_seconds/60:.1f}min → {prev_stage} → {new_stage}")
                     update_stage_file(path, state, new_stage)
 
-                # 活跃 tab 去色，非活跃 tab 补色
-                if active:
-                    await apply_tab_color(connection, sid, None)
-                else:
-                    await apply_tab_color(connection, sid, color_for_stage(new_stage))
-
+            idle_count = len(states)
             if 0 < idle_count < CONCURRENT_TARGET:
                 log(f"提示：当前 {idle_count} 个 tab 等待中，"
                     f"目标并发 {CONCURRENT_TARGET}，可以多开任务 💪")
