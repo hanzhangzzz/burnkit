@@ -109,9 +109,9 @@ Three components work together:
    - **Stop**: sets green via ANSI escape (instant feedback on active pane), writes timestamp file
    - **PreToolUse**: resets color, deletes timestamp file, calls API to reset entire tab in background
 
-2. **Daemon** (`tab_color_daemon.py`) — background process managed by launchd
-   - Watches timestamp files for create/delete (1s scan)
-   - Upgrades colors: green → yellow → red based on idle duration
+2. **Daemon** (`tab_color_daemon.py`) — background process managed by launchd (single-writer architecture)
+   - **Watch loop (500ms)**: the ONLY loop that writes colors via iTerm2 API. Reads state files + active tab status → applies correct color per session
+   - **Poller (30s)**: only updates state file metadata (orphan cleanup, same-tab dedup, color stage upgrade green→yellow→red). Never touches iTerm2 API
    - Tracks active tab: colors only non-active tabs (notification badge pattern)
    - Supports split panes: colors all panes in the same tab uniformly
 
@@ -126,6 +126,7 @@ iterm2-claude-tab-color/
 ├── tab_color_hook.sh # Claude Code hook script
 ├── tab_color_daemon.py  # Background daemon (launchd)
 ├── reset_tab.py      # Fast API reset (called by hook)
+├── test_daemon.py    # Unit tests (41 tests, no iTerm2 dependency)
 ├── LICENSE           # MIT
 └── README.md
 ```
