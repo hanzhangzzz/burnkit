@@ -4,8 +4,6 @@
 
 When you run multiple Claude Code sessions across iTerm2 tabs, it's hard to track which ones are waiting for your input and how long they've been idle. This tool automatically colors your tabs so you know **at a glance** where Claude needs you.
 
-**Placeholder: demo GIF showing tab colors changing** — `assets/demo.gif`
-
 ![demo](assets/demo.gif)
 
 ## How It Works
@@ -18,8 +16,6 @@ When you run multiple Claude Code sessions across iTerm2 tabs, it's hard to trac
 | ⬜ **White** | Active / processing | You're on this tab, or Claude is working |
 
 **Only tabs you're NOT looking at get colored.** Your active tab stays white — you always know where you are.
-
-**Placeholder: screenshot showing split pane with consistent tab color** — `assets/split-pane.png`
 
 ![split pane](assets/split-pane.png)
 
@@ -178,8 +174,6 @@ rm ~/Library/LaunchAgents/com.duying.tab-color-daemon.plist
 ### 解决什么问题
 
 开多个 iTerm2 tab 跑 Claude Code 时，不知道哪个 tab 的 Claude 已经回复完在等你、等了多久。这个工具让 tab 颜色自动反映空闲状态，一眼就知道该切到哪个 tab。
-
-**Placeholder: demo GIF** — `assets/demo.gif`
 
 ### 颜色规则
 
