@@ -8,7 +8,7 @@ iTerm2 Tab Color Daemon
   - watch (500ms)：唯一负责写 tab 颜色的循环
     读 state 文件 → 根据色阶 + 活跃状态 → 应用颜色
   - poller (30s)：只更新 state 文件的元数据
-    孤儿清理、同 tab 去重、色阶升级（green → yellow → red）
+    孤儿清理（session 不存在 或 Claude 进程已退出）、同 tab 去重、色阶升级
     绝不直接操作 iTerm2 API
 
 配置：同目录 config.sh
@@ -17,6 +17,7 @@ iTerm2 Tab Color Daemon
 import asyncio
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -96,6 +97,38 @@ def is_active_tab(app, session) -> bool:
         return active_tab is not None and active_tab.tab_id == session.tab.tab_id
     except Exception:
         return False
+
+
+def is_claude_running(session) -> bool:
+    """检测 iTerm2 pane 内是否还有 Claude Code 进程。
+
+    遍历 shell 的直接子进程，检查是否有 claude 相关命令。
+    检测失败时返回 True（宁可不删，避免误清理）。
+    """
+    try:
+        shell_pid = session.server_pid
+        if not shell_pid:
+            return True
+
+        # 找 shell 的直接子进程
+        result = subprocess.run(
+            ['pgrep', '-P', str(shell_pid)],
+            capture_output=True, text=True, timeout=3
+        )
+        for pid in result.stdout.strip().split('\n'):
+            pid = pid.strip()
+            if not pid:
+                continue
+            cmd_result = subprocess.run(
+                ['ps', '-p', pid, '-o', 'args='],
+                capture_output=True, text=True, timeout=3
+            )
+            cmd = cmd_result.stdout.strip().lower()
+            if 'claude' in cmd:
+                return True
+        return False
+    except Exception:
+        return True
 
 
 async def apply_tab_color(connection, iterm2_session_id: str, color, *, app=None, session=None):
@@ -253,7 +286,7 @@ async def _apply_all_colors(connection):
 async def color_poller(connection):
     """
     每 POLL_INTERVAL 秒更新 state 文件元数据：
-    - 清理孤儿 state 文件（iTerm2 session 已不存在）
+    - 清理孤儿 state 文件（iTerm2 session 已不存在 或 Claude 进程已退出）
     - 同 tab 多 session 去重（只保留最新 idle_since）
     - 升级 color_stage（green → yellow → red）
 
@@ -275,8 +308,16 @@ async def color_poller(connection):
                 if not sid:
                     continue
                 uuid = extract_uuid(sid)
-                if app.get_session_by_id(uuid) is None:
+                session = app.get_session_by_id(uuid)
+                if session is None:
                     log(f"清理孤儿: {uuid[:8]}… iTerm2 session 已不存在")
+                    try:
+                        Path(path).unlink()
+                    except OSError:
+                        pass
+                    states.pop(path, None)
+                elif not is_claude_running(session):
+                    log(f"清理孤儿: {uuid[:8]}… Claude 进程已退出")
                     try:
                         Path(path).unlink()
                     except OSError:
