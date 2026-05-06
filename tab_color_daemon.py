@@ -8,7 +8,7 @@ iTerm2 Tab Color Daemon
   - watch (500ms)：唯一负责写 tab 颜色的循环
     读 state 文件 → 根据色阶 + 活跃状态 → 应用颜色
   - poller (30s)：只更新 state 文件的元数据
-    孤儿清理（session 不存在 或 Claude 进程已退出）、同 tab 去重、色阶升级
+    孤儿清理（session 不存在 或 agent 进程已退出）、同 tab 聚合、色阶升级
     绝不直接操作 iTerm2 API
 
 配置：同目录 config.sh
@@ -17,6 +17,7 @@ iTerm2 Tab Color Daemon
 import asyncio
 import json
 import os
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -71,6 +72,18 @@ CONCURRENT_TARGET    = CFG["CONCURRENT_TARGET"]
 COLOR_GREEN  = iterm2.Color(CFG["COLOR_GREEN_R"],  CFG["COLOR_GREEN_G"],  CFG["COLOR_GREEN_B"])
 COLOR_YELLOW = iterm2.Color(CFG["COLOR_YELLOW_R"], CFG["COLOR_YELLOW_G"], CFG["COLOR_YELLOW_B"])
 COLOR_RED    = iterm2.Color(CFG["COLOR_RED_R"],    CFG["COLOR_RED_G"],    CFG["COLOR_RED_B"])
+STAGE_RANK = {"green": 0, "yellow": 1, "red": 2}
+
+AGENT_PROCESS_MARKERS = {
+    "claude": {
+        "commands": {"claude"},
+        "arg_markers": {"@anthropic-ai/claude-code"},
+    },
+    "codex": {
+        "commands": {"codex"},
+        "arg_markers": {"@openai/codex"},
+    },
+}
 
 
 # ------------------------------------------------------------------ #
@@ -87,6 +100,12 @@ def extract_uuid(iterm2_session_id: str) -> str:
     return iterm2_session_id.split(":")[-1] if ":" in iterm2_session_id else iterm2_session_id
 
 
+def extract_tab_prefix(iterm2_session_id: str) -> str:
+    """'w0t1p2:UUID' → 'w0t1'；无法解析时返回空字符串。"""
+    prefix = iterm2_session_id.split(":", 1)[0]
+    return prefix.rsplit("p", 1)[0] if "p" in prefix else ""
+
+
 def is_active_tab(app, session) -> bool:
     """判断 session 所在 tab 是否为当前活跃 tab。"""
     try:
@@ -99,36 +118,138 @@ def is_active_tab(app, session) -> bool:
         return False
 
 
-def is_claude_running(session) -> bool:
-    """检测 iTerm2 pane 内是否还有 Claude Code 进程。
+def _is_shell_job(job_name: str) -> bool:
+    shells = {"bash", "fish", "sh", "tcsh", "zsh", "-bash", "-fish", "-sh", "-tcsh", "-zsh"}
+    return Path(job_name).name.lower() in shells
 
-    遍历 shell 的直接子进程，检查是否有 claude 相关命令。
-    检测失败时返回 True（宁可不删，避免误清理）。
-    """
+
+def _normalize_agent(agent: str | None) -> str:
+    return agent if agent in AGENT_PROCESS_MARKERS else "claude"
+
+
+def agent_from_state(state: dict) -> str:
+    """旧 state 没有 agent 字段，默认按 Claude 处理以兼容升级。"""
+    return _normalize_agent(state.get("agent"))
+
+
+def _command_matches_agent(comm: str, args: str, agent: str) -> bool:
+    spec = AGENT_PROCESS_MARKERS[_normalize_agent(agent)]
+    comm_name = Path(comm).name.lower()
+    if comm_name in spec["commands"]:
+        return True
+
     try:
-        shell_pid = session.server_pid
-        if not shell_pid:
-            return True
+        argv0 = shlex.split(args)[0] if args else ""
+    except ValueError:
+        argv0 = args.split(maxsplit=1)[0] if args else ""
+    argv0_name = Path(argv0).name.lower()
+    if argv0_name in spec["commands"]:
+        return True
 
-        # 找 shell 的直接子进程
+    args_lower = args.lower()
+    return any(marker in args_lower for marker in spec["arg_markers"])
+
+
+def _tty_has_agent_process(tty: str, agent: str) -> bool | None:
+    """扫描 tty 上的进程；None 表示无法判断。"""
+    tty_name = tty.replace("/dev/", "")
+    if not tty_name:
+        return None
+
+    try:
         result = subprocess.run(
-            ['pgrep', '-P', str(shell_pid)],
+            ["ps", "-t", tty_name, "-o", "comm=,args="],
             capture_output=True, text=True, timeout=3
         )
-        for pid in result.stdout.strip().split('\n'):
-            pid = pid.strip()
-            if not pid:
+        if result.returncode != 0:
+            return None
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line:
                 continue
-            cmd_result = subprocess.run(
-                ['ps', '-p', pid, '-o', 'args='],
-                capture_output=True, text=True, timeout=3
-            )
-            cmd = cmd_result.stdout.strip().lower()
-            if 'claude' in cmd:
+            comm, _, args = line.partition(" ")
+            if _command_matches_agent(comm, args.strip(), agent):
                 return True
         return False
     except Exception:
-        return True
+        return None
+
+
+def _process_tree_has_agent(root_pid: int, agent: str) -> bool | None:
+    """从 root_pid 向下扫描进程树；None 表示无法判断。"""
+    try:
+        pending = [str(root_pid)]
+        seen = set()
+        while pending:
+            parent = pending.pop()
+            if parent in seen:
+                continue
+            seen.add(parent)
+
+            cmd_result = subprocess.run(
+                ["ps", "-p", parent, "-o", "comm=,args="],
+                capture_output=True, text=True, timeout=3
+            )
+            if cmd_result.returncode == 0:
+                line = cmd_result.stdout.strip()
+                comm, _, args = line.partition(" ")
+                if _command_matches_agent(comm, args.strip(), agent):
+                    return True
+
+            result = subprocess.run(
+                ["pgrep", "-P", parent],
+                capture_output=True, text=True, timeout=3
+            )
+            pending.extend(pid for pid in result.stdout.split() if pid)
+        return False
+    except Exception:
+        return None
+
+
+async def is_agent_running(session, agent: str) -> bool:
+    """检测 iTerm2 pane 内是否还有指定 AI CLI 进程。
+
+    优先使用 iTerm2 变量中的 tty 扫描真实终端进程。旧实现依赖
+    session.server_pid，但该字段在部分 iTerm2 版本中为 None，会导致
+    已退出的 agent pane 被误判为仍在运行。
+
+    检测完全失败时返回 True（宁可不删，避免误清理）。
+    """
+    agent = _normalize_agent(agent)
+    try:
+        job_name = await session.async_get_variable("jobName")
+        if isinstance(job_name, str) and _is_shell_job(job_name):
+            return False
+    except Exception:
+        pass
+
+    try:
+        tty = await session.async_get_variable("tty")
+        if isinstance(tty, str):
+            tty_result = _tty_has_agent_process(tty, agent)
+            if tty_result is not None:
+                return tty_result
+    except Exception:
+        pass
+
+    root_pid = getattr(session, "server_pid", None)
+    if not root_pid:
+        try:
+            root_pid = await session.async_get_variable("pid")
+        except Exception:
+            root_pid = None
+
+    if root_pid:
+        tree_result = _process_tree_has_agent(int(root_pid), agent)
+        if tree_result is not None:
+            return tree_result
+
+    return True
+
+
+async def is_claude_running(session) -> bool:
+    """兼容旧测试/调用点。"""
+    return await is_agent_running(session, "claude")
 
 
 async def apply_tab_color(connection, iterm2_session_id: str, color, *, app=None, session=None):
@@ -170,6 +291,10 @@ def compute_color_stage(idle_seconds: float) -> str:
 
 def color_for_stage(stage: str) -> iterm2.Color:
     return {"green": COLOR_GREEN, "yellow": COLOR_YELLOW, "red": COLOR_RED}[stage]
+
+
+def max_stage(left: str, right: str) -> str:
+    return left if STAGE_RANK.get(left, 0) >= STAGE_RANK.get(right, 0) else right
 
 
 def read_state_files() -> dict[str, dict]:
@@ -242,9 +367,16 @@ async def watch_idle_dir(connection):
             # 全量刷新颜色：每个 state 文件根据 活跃/非活跃 决定颜色
             await _apply_all_colors(connection)
 
-            # 重置已消失的 session
+            current_tab_prefixes = {
+                prefix
+                for s in current.values()
+                if (prefix := extract_tab_prefix(s.get("iterm2_session", "")))
+            }
+
+            # 重置已消失的 session；同 tab 仍有其他 idle state 时不能把整 tab 变白
             for sid in disappeared:
-                await apply_tab_color(connection, sid, None)
+                if extract_tab_prefix(sid) not in current_tab_prefixes:
+                    await apply_tab_color(connection, sid, None)
 
         except Exception as e:
             log(f"watch 出错: {e}")
@@ -260,6 +392,7 @@ async def _apply_all_colors(connection):
         return
 
     app = await iterm2.async_get_app(connection)
+    tabs: dict[str, dict] = {}
 
     for path, state in states.items():
         sid = state.get("iterm2_session", "")
@@ -270,13 +403,23 @@ async def _apply_all_colors(connection):
         if session is None:
             continue
 
-        active = is_active_tab(app, session)
         stage = state.get("color_stage", "green")
+        tab_id = session.tab.tab_id if session.tab is not None else session.session_id
+        tab_state = tabs.setdefault(tab_id, {
+            "sid": sid,
+            "session": session,
+            "stage": stage,
+            "active": False,
+        })
+        tab_state["stage"] = max_stage(tab_state["stage"], stage)
+        tab_state["active"] = tab_state["active"] or is_active_tab(app, session)
 
-        if active:
-            await apply_tab_color(connection, sid, None, app=app, session=session)
+    for tab_state in tabs.values():
+        if tab_state["active"]:
+            await apply_tab_color(connection, tab_state["sid"], None, app=app, session=tab_state["session"])
         else:
-            await apply_tab_color(connection, sid, color_for_stage(stage), app=app, session=session)
+            color = color_for_stage(tab_state["stage"])
+            await apply_tab_color(connection, tab_state["sid"], color, app=app, session=tab_state["session"])
 
 
 # ------------------------------------------------------------------ #
@@ -286,8 +429,8 @@ async def _apply_all_colors(connection):
 async def color_poller(connection):
     """
     每 POLL_INTERVAL 秒更新 state 文件元数据：
-    - 清理孤儿 state 文件（iTerm2 session 已不存在 或 Claude 进程已退出）
-    - 同 tab 多 session 去重（只保留最新 idle_since）
+    - 清理孤儿 state 文件（iTerm2 session 已不存在 或 agent 进程已退出）
+    - 同 tab 多 session 聚合（全部退出/恢复活跃后才重置）
     - 升级 color_stage（green → yellow → red）
 
     绝不直接调用 iTerm2 API 设色 —— 那是 watch 的职责。
@@ -316,47 +459,18 @@ async def color_poller(connection):
                     except OSError:
                         pass
                     states.pop(path, None)
-                elif not is_claude_running(session):
-                    log(f"清理孤儿: {uuid[:8]}… Claude 进程已退出")
+                else:
+                    agent = agent_from_state(state)
+                    if await is_agent_running(session, agent):
+                        continue
+                    log(f"清理孤儿: {uuid[:8]}… {agent} 进程已退出")
                     try:
                         Path(path).unlink()
                     except OSError:
                         pass
                     states.pop(path, None)
 
-            # ---- 2. 同 tab 多 session 去重 ----
-            tab_sessions: dict[str, tuple[str, dict]] = {}
-            for path, state in list(states.items()):
-                sid = state.get("iterm2_session", "")
-                if not sid:
-                    continue
-                uuid = extract_uuid(sid)
-                session = app.get_session_by_id(uuid)
-                if session is None or session.tab is None:
-                    continue
-                tab_id = session.tab.tab_id
-                if tab_id in tab_sessions:
-                    _, existing_state = tab_sessions[tab_id]
-                    if state.get("idle_since", 0) > existing_state.get("idle_since", 0):
-                        old_path = tab_sessions[tab_id][0]
-                        log(f"同 tab 去重: 删除旧 session {extract_uuid(states[old_path].get('iterm2_session',''))[:8]}…")
-                        try:
-                            Path(old_path).unlink()
-                        except OSError:
-                            pass
-                        states.pop(old_path, None)
-                        tab_sessions[tab_id] = (path, state)
-                    else:
-                        log(f"同 tab 去重: 删除旧 session {uuid[:8]}…")
-                        try:
-                            Path(path).unlink()
-                        except OSError:
-                            pass
-                        states.pop(path, None)
-                else:
-                    tab_sessions[tab_id] = (path, state)
-
-            # ---- 3. 升级 color_stage（只改文件，不改颜色）----
+            # ---- 2. 升级 color_stage（只改文件，不改颜色）----
             for path, state in states.items():
                 idle_since = state.get("idle_since", now)
                 prev_stage = state.get("color_stage", "green")
@@ -368,7 +482,12 @@ async def color_poller(connection):
                         f"idle {idle_seconds/60:.1f}min → {prev_stage} → {new_stage}")
                     update_stage_file(path, state, new_stage)
 
-            idle_count = len(states)
+            idle_tabs = {
+                prefix
+                for state in states.values()
+                if (prefix := extract_tab_prefix(state.get("iterm2_session", "")))
+            }
+            idle_count = len(idle_tabs) or len(states)
             if 0 < idle_count < CONCURRENT_TARGET:
                 log(f"提示：当前 {idle_count} 个 tab 等待中，"
                     f"目标并发 {CONCURRENT_TARGET}，可以多开任务 💪")
@@ -390,4 +509,5 @@ async def main(connection):
     await asyncio.Event().wait()
 
 
-iterm2.run_forever(main)
+if __name__ == "__main__":
+    iterm2.run_forever(main)

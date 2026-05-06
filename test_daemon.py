@@ -112,6 +112,18 @@ class TestExtractUuid(unittest.TestCase):
         self.assertEqual(daemon.extract_uuid(""), "")
 
 
+class TestExtractTabPrefix(unittest.TestCase):
+
+    def test_standard_format(self):
+        self.assertEqual(
+            daemon.extract_tab_prefix("w0t1p2:A50590C2-E083-4E1B-9F1A-4B211ED615C1"),
+            "w0t1",
+        )
+
+    def test_missing_prefix_returns_empty(self):
+        self.assertEqual(daemon.extract_tab_prefix("A50590C2-E083-4E1B-9F1A-4B211ED615C1"), "")
+
+
 # ================================================================== #
 #  color_for_stage — stage → Color 映射
 # ================================================================== #
@@ -126,6 +138,11 @@ class TestColorForStage(unittest.TestCase):
     def test_invalid_stage_raises(self):
         with self.assertRaises(KeyError):
             daemon.color_for_stage("blue")
+
+    def test_max_stage_returns_more_severe_stage(self):
+        self.assertEqual(daemon.max_stage("green", "yellow"), "yellow")
+        self.assertEqual(daemon.max_stage("red", "green"), "red")
+        self.assertEqual(daemon.max_stage("yellow", "red"), "red")
 
 
 # ================================================================== #
@@ -273,6 +290,69 @@ class TestIsActiveTab(unittest.TestCase):
 
 
 # ================================================================== #
+#  is_agent_running — AI CLI 进程检测
+# ================================================================== #
+
+class TestIsAgentRunning(unittest.TestCase):
+
+    def test_command_matches_claude(self):
+        self.assertTrue(daemon._command_matches_agent("claude", "claude --resume", "claude"))
+        self.assertTrue(daemon._command_matches_agent("node", "node @anthropic-ai/claude-code", "claude"))
+        self.assertFalse(daemon._command_matches_agent("codex", "codex", "claude"))
+
+    def test_command_matches_codex(self):
+        self.assertTrue(daemon._command_matches_agent("codex", "codex --model gpt-5.5", "codex"))
+        self.assertTrue(daemon._command_matches_agent("node", "node @openai/codex/bin/codex.js", "codex"))
+        self.assertFalse(daemon._command_matches_agent("claude", "claude", "codex"))
+
+    def test_shell_job_with_missing_server_pid_is_not_running(self):
+        """回归：server_pid=None 且前台是 zsh 时，应清理 state"""
+        session = MagicMock()
+        session.server_pid = None
+        session.async_get_variable = AsyncMock(side_effect=lambda name: {
+            "jobName": "zsh",
+        }.get(name))
+
+        import asyncio
+        self.assertFalse(asyncio.run(daemon.is_claude_running(session)))
+
+    def test_tty_scan_detects_claude(self):
+        """jobName 不可靠时，通过 tty 进程表识别 Claude"""
+        session = MagicMock()
+        session.server_pid = None
+        session.async_get_variable = AsyncMock(side_effect=lambda name: {
+            "jobName": "node",
+            "tty": "/dev/ttys001",
+        }.get(name))
+
+        import asyncio
+        with patch.object(daemon, "_tty_has_agent_process", return_value=True):
+            self.assertTrue(asyncio.run(daemon.is_agent_running(session, "claude")))
+
+    def test_tty_scan_detects_codex(self):
+        """Codex 与 Claude 共用检测路径，只替换 agent spec"""
+        session = MagicMock()
+        session.server_pid = None
+        session.async_get_variable = AsyncMock(side_effect=lambda name: {
+            "jobName": "codex",
+            "tty": "/dev/ttys002",
+        }.get(name))
+
+        import asyncio
+        with patch.object(daemon, "_tty_has_agent_process", return_value=True):
+            self.assertTrue(asyncio.run(daemon.is_agent_running(session, "codex")))
+
+    def test_unknown_detection_keeps_state(self):
+        """完全无法判断时保持保守，不误删 state"""
+        session = MagicMock()
+        session.server_pid = None
+        session.async_get_variable = AsyncMock(side_effect=Exception("unavailable"))
+
+        import asyncio
+        self.assertTrue(asyncio.run(daemon.is_claude_running(session)))
+
+
+# ================================================================== #
 #  apply_tab_color — tab 颜色设置（mock iTerm2 API）
 # ================================================================== #
 
@@ -362,6 +442,50 @@ class TestApplyTabColor(unittest.TestCase):
 
         # session 自身被调用 async_set_profile_properties
         self.assertEqual(self.mock_app.get_session_by_id.return_value.async_set_profile_properties.call_count, 1)
+
+
+# ================================================================== #
+#  _apply_all_colors — 同 tab 多 agent 聚合
+# ================================================================== #
+
+class TestApplyAllColors(unittest.TestCase):
+
+    def setUp(self):
+        self.mock_conn = MagicMock()
+        self.mock_app = MagicMock()
+        mock_iterm2.async_get_app = AsyncMock(return_value=self.mock_app)
+
+    def _make_session(self, tab_id):
+        session = MagicMock()
+        tab = MagicMock()
+        tab.tab_id = tab_id
+        tab.sessions = [session]
+        session.tab = tab
+        session.session_id = f"session-{tab_id}"
+        return session
+
+    def test_same_tab_uses_most_severe_stage_once(self):
+        session1 = self._make_session("tab-1")
+        session2 = self._make_session("tab-1")
+        self.mock_app.get_session_by_id.side_effect = {
+            "UUID-1": session1,
+            "UUID-2": session2,
+        }.get
+
+        states = {
+            "a.json": {"iterm2_session": "w0t0p0:UUID-1", "color_stage": "green"},
+            "b.json": {"iterm2_session": "w0t0p1:UUID-2", "color_stage": "red"},
+        }
+
+        import asyncio
+        with patch.object(daemon, "read_state_files", return_value=states), \
+             patch.object(daemon, "is_active_tab", return_value=False), \
+             patch.object(daemon, "apply_tab_color", new_callable=AsyncMock) as apply_mock:
+            asyncio.run(daemon._apply_all_colors(self.mock_conn))
+
+        apply_mock.assert_called_once()
+        _, args, _ = apply_mock.mock_calls[0]
+        self.assertEqual(args[2], daemon.COLOR_RED)
 
 
 # ================================================================== #

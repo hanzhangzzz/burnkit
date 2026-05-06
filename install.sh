@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 # iTerm2 Tab Color - 安装脚本
-# 建立软链 + 注册 Claude Code hooks + 配置 launchd 守护进程
+# 建立软链 + 注册 Claude/Codex hooks + 配置 launchd 守护进程
 # ============================================================
 set -e
 
@@ -10,10 +10,12 @@ HOOK_SRC="$TOOLS_DIR/tab_color_hook.sh"
 DAEMON_SRC="$TOOLS_DIR/tab_color_daemon.py"
 PLIST_SRC="$TOOLS_DIR/com.duying.tab-color-daemon.plist"
 
-HOOK_LINK="$HOME/.claude/hooks/tab_color_hook.sh"
+CLAUDE_HOOK_LINK="$HOME/.claude/hooks/tab_color_hook.sh"
+CODEX_HOOK_LINK="$HOME/.codex/hooks/tab_color_hook.sh"
 PLIST_LINK="$HOME/Library/LaunchAgents/com.duying.tab-color-daemon.plist"
 
-SETTINGS_FILE="$HOME/.claude/settings.json"
+CLAUDE_SETTINGS_FILE="$HOME/.claude/settings.json"
+CODEX_HOOKS_FILE="$HOME/.codex/hooks.json"
 PYTHON3="$(which python3)"
 
 echo "📦 iTerm2 Tab Color 安装程序"
@@ -40,6 +42,7 @@ echo "✅ 源文件 & iterm2 模块检查通过"
 
 # ---- 2. 创建必要目录 ----
 mkdir -p "$HOME/.claude/hooks"
+mkdir -p "$HOME/.codex/hooks"
 mkdir -p "$HOME/.claude/idle_state"
 mkdir -p "$HOME/Library/LaunchAgents"
 echo "✅ 目录创建完成"
@@ -87,12 +90,20 @@ echo "✅ launchd plist 已生成: $PLIST_SRC"
 # ---- 4. 建立软链 ----
 
 # Hook 脚本软链
-if [ -L "$HOOK_LINK" ]; then
-    rm "$HOOK_LINK"
+if [ -L "$CLAUDE_HOOK_LINK" ]; then
+    rm "$CLAUDE_HOOK_LINK"
 fi
-ln -s "$HOOK_SRC" "$HOOK_LINK"
+ln -s "$HOOK_SRC" "$CLAUDE_HOOK_LINK"
+
+if [ -L "$CODEX_HOOK_LINK" ]; then
+    rm "$CODEX_HOOK_LINK"
+fi
+ln -s "$HOOK_SRC" "$CODEX_HOOK_LINK"
+
 chmod +x "$HOOK_SRC"
-echo "✅ Hook 软链:   $HOOK_LINK"
+echo "✅ Claude Hook 软链: $CLAUDE_HOOK_LINK"
+echo "                    → $HOOK_SRC"
+echo "✅ Codex Hook 软链:  $CODEX_HOOK_LINK"
 echo "               → $HOOK_SRC"
 
 # plist 软链
@@ -108,16 +119,12 @@ echo "               → $PLIST_SRC"
 echo ""
 echo "🔧 注册 Claude Code Hooks..."
 
-if [ ! -f "$SETTINGS_FILE" ]; then
-    echo "❌ 未找到 $SETTINGS_FILE，请先运行一次 Claude Code"
-    exit 1
-fi
-
-"$PYTHON3" - <<PYEOF
+if [ -f "$CLAUDE_SETTINGS_FILE" ]; then
+    "$PYTHON3" - <<PYEOF
 import json
 
-settings_path = "$SETTINGS_FILE"
-hook_cmd = "$HOOK_LINK"
+settings_path = "$CLAUDE_SETTINGS_FILE"
+hook_cmd = "$CLAUDE_HOOK_LINK"
 
 with open(settings_path) as f:
     cfg = json.load(f)
@@ -149,6 +156,62 @@ with open(settings_path, "w") as f:
 
 print("✅ settings.json 更新完成")
 PYEOF
+else
+    echo "⚠️  未找到 $CLAUDE_SETTINGS_FILE，跳过 Claude hook 注册"
+fi
+
+# ---- 5b. 注册 Codex Hooks ----
+echo ""
+echo "🔧 注册 Codex Hooks..."
+
+if [ -f "$CODEX_HOOKS_FILE" ]; then
+    "$PYTHON3" - <<PYEOF
+import json
+
+hooks_path = "$CODEX_HOOKS_FILE"
+hook_cmd = "'$CODEX_HOOK_LINK' --agent codex"
+
+with open(hooks_path) as f:
+    cfg = json.load(f)
+
+hooks = cfg.setdefault("hooks", {})
+events = ["Stop", "PreToolUse", "UserPromptSubmit"]
+
+for event_name in events:
+    for group in hooks.get(event_name, []):
+        group["hooks"] = [
+            h for h in group.get("hooks", [])
+            if "tab_color_hook.sh" not in h.get("command", "") or "--agent codex" in h.get("command", "")
+        ]
+
+def ensure_hook(event_name, matcher, command):
+    event_hooks = hooks.setdefault(event_name, [])
+    target_group = None
+    for group in event_hooks:
+        if group.get("matcher") == matcher:
+            target_group = group
+            break
+    if target_group is None:
+        target_group = {"matcher": matcher, "hooks": []}
+        event_hooks.append(target_group)
+    for h in target_group["hooks"]:
+        if h.get("command") == command:
+            print(f"   （已存在，跳过）: {event_name}/{matcher}")
+            return
+    target_group["hooks"].append({"type": "command", "command": command})
+    print(f"   ✅ 已注册: {event_name}/{matcher}")
+
+for event_name in events:
+    ensure_hook(event_name, "*", hook_cmd)
+
+with open(hooks_path, "w") as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+print("✅ hooks.json 更新完成")
+PYEOF
+else
+    echo "⚠️  未找到 $CODEX_HOOKS_FILE，跳过 Codex hook 注册"
+fi
 
 # ---- 6. 加载 launchd 守护进程 ----
 echo ""
@@ -179,4 +242,4 @@ echo "  改完后执行: launchctl kickstart -k gui/\$(id -u)/com.duying.tab-col
 echo ""
 echo "卸载："
 echo "  launchctl unload '$PLIST_LINK'"
-echo "  rm '$HOOK_LINK' '$PLIST_LINK'"
+echo "  rm '$CLAUDE_HOOK_LINK' '$CODEX_HOOK_LINK' '$PLIST_LINK'"
