@@ -164,24 +164,32 @@ fi
 echo ""
 echo "🔧 注册 Codex Hooks..."
 
-if [ -f "$CODEX_HOOKS_FILE" ]; then
-    "$PYTHON3" - <<PYEOF
+if [ ! -f "$CODEX_HOOKS_FILE" ]; then
+    echo "{\"hooks\": {}}" > "$CODEX_HOOKS_FILE"
+    echo "   ✅ 已创建: $CODEX_HOOKS_FILE"
+fi
+
+"$PYTHON3" - <<PYEOF
 import json
 
 hooks_path = "$CODEX_HOOKS_FILE"
-hook_cmd = "'$CODEX_HOOK_LINK' --agent codex"
+hook_cmd = "'$CODEX_HOOK_LINK' --agent codex >/dev/null 2>&1 || true"
 
-with open(hooks_path) as f:
-    cfg = json.load(f)
+try:
+    with open(hooks_path) as f:
+        cfg = json.load(f)
+except json.JSONDecodeError as exc:
+    raise SystemExit(f"❌ {hooks_path} 不是合法 JSON: {exc}") from exc
 
 hooks = cfg.setdefault("hooks", {})
 events = ["Stop", "PreToolUse", "UserPromptSubmit"]
 
 for event_name in events:
     for group in hooks.get(event_name, []):
+        # Canonicalize all old project hook commands to the one silent Codex command.
         group["hooks"] = [
             h for h in group.get("hooks", [])
-            if "tab_color_hook.sh" not in h.get("command", "") or "--agent codex" in h.get("command", "")
+            if "tab_color_hook.sh" not in h.get("command", "")
         ]
 
 def ensure_hook(event_name, matcher, command):
@@ -209,9 +217,6 @@ with open(hooks_path, "w") as f:
 
 print("✅ hooks.json 更新完成")
 PYEOF
-else
-    echo "⚠️  未找到 $CODEX_HOOKS_FILE，跳过 Codex hook 注册"
-fi
 
 # ---- 6. 加载 launchd 守护进程 ----
 echo ""

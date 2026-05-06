@@ -6,7 +6,7 @@ iTerm2 Tab Color Daemon
 
 架构：单一写入者
   - watch (500ms)：唯一负责写 tab 颜色的循环
-    读 state 文件 → 根据色阶 + 活跃状态 → 应用颜色
+    读 state 文件 → 轻量清理已回到 shell 的 pane → 应用颜色
   - poller (30s)：只更新 state 文件的元数据
     孤儿清理（session 不存在 或 agent 进程已退出）、同 tab 聚合、色阶升级
     绝不直接操作 iTerm2 API
@@ -69,6 +69,7 @@ THRESHOLD_RED_SEC    = CFG["THRESHOLD_RED"] * 60
 POLL_INTERVAL        = CFG["POLL_INTERVAL"]
 IDLE_STATE_DIR       = Path(CFG["IDLE_STATE_DIR"])
 CONCURRENT_TARGET    = CFG["CONCURRENT_TARGET"]
+FAST_EXIT_CHECK_INTERVAL = 1.0
 
 COLOR_GREEN  = iterm2.Color(CFG["COLOR_GREEN_R"],  CFG["COLOR_GREEN_G"],  CFG["COLOR_GREEN_B"])
 COLOR_YELLOW = iterm2.Color(CFG["COLOR_YELLOW_R"], CFG["COLOR_YELLOW_G"], CFG["COLOR_YELLOW_B"])
@@ -122,6 +123,15 @@ def is_active_tab(app, session) -> bool:
 def _is_shell_job(job_name: str) -> bool:
     shells = {"bash", "fish", "sh", "tcsh", "zsh", "-bash", "-fish", "-sh", "-tcsh", "-zsh"}
     return Path(job_name).name.lower() in shells
+
+
+async def session_foreground_is_shell(session) -> bool:
+    """快速判断 pane 前台是否已回到 shell。失败时返回 False，交给 poller 保守处理。"""
+    try:
+        job_name = await session.async_get_variable("jobName")
+        return isinstance(job_name, str) and _is_shell_job(job_name)
+    except Exception:
+        return False
 
 
 def _normalize_agent(agent: Optional[str]) -> str:
@@ -217,12 +227,8 @@ async def is_agent_running(session, agent: str) -> bool:
     检测完全失败时返回 True（宁可不删，避免误清理）。
     """
     agent = _normalize_agent(agent)
-    try:
-        job_name = await session.async_get_variable("jobName")
-        if isinstance(job_name, str) and _is_shell_job(job_name):
-            return False
-    except Exception:
-        pass
+    if await session_foreground_is_shell(session):
+        return False
 
     try:
         tty = await session.async_get_variable("tty")
@@ -319,20 +325,58 @@ def update_stage_file(path: str, state: dict, stage: str):
         pass
 
 
+async def prune_finished_state_files(connection, states: dict[str, dict], *, app=None) -> dict[str, dict]:
+    """轻量清理已退出的 state，只用 iTerm2 session/jobName，不做 ps/pgrep 扫描。"""
+    if not states:
+        return states
+
+    if app is None:
+        app = await iterm2.async_get_app(connection)
+    remaining = dict(states)
+
+    for path, state in list(states.items()):
+        sid = state.get("iterm2_session", "")
+        if not sid:
+            continue
+
+        uuid = extract_uuid(sid)
+        session = app.get_session_by_id(uuid)
+        reason = ""
+
+        if session is None:
+            reason = "iTerm2 session 已不存在"
+        elif await session_foreground_is_shell(session):
+            reason = "pane 已回到 shell"
+
+        if not reason:
+            continue
+
+        log(f"快速清理: {uuid[:8]}… {reason}")
+        try:
+            Path(path).unlink()
+        except OSError:
+            pass
+        remaining.pop(path, None)
+
+    return remaining
+
+
 # ------------------------------------------------------------------ #
-#  watch：唯一的颜色写入者（1s 周期）
+#  watch：唯一的颜色写入者（500ms 周期）
 # ------------------------------------------------------------------ #
 
 async def watch_idle_dir(connection):
     """
-    每秒扫描，唯一负责 iTerm2 API 调用的循环。
+    每 500ms 扫描，唯一负责 iTerm2 API 调用的循环。
 
     逻辑：
     - 有 state 文件 + 非活跃 tab → 按 color_stage 上色
     - 有 state 文件 + 活跃 tab   → 重置（白色）
+    - state 对应 pane 回到 shell → 轻量删除 state
     - 无 state 文件（刚删除）     → 重置（白色）
     """
     known: dict[str, dict] = {}
+    last_exit_check = 0.0
 
     # 启动恢复：对所有已有文件按当前空闲时长设色
     now = time.time()
@@ -354,6 +398,13 @@ async def watch_idle_dir(connection):
         try:
             current = read_state_files()
 
+            now = time.monotonic()
+            app = None
+            if current and now - last_exit_check >= FAST_EXIT_CHECK_INTERVAL:
+                app = await iterm2.async_get_app(connection)
+                current = await prune_finished_state_files(connection, current, app=app)
+                last_exit_check = now
+
             # 消失的文件 → 记住 session 以便重置
             disappeared = []
             for path, state in known.items():
@@ -366,7 +417,7 @@ async def watch_idle_dir(connection):
             known = current
 
             # 全量刷新颜色：每个 state 文件根据 活跃/非活跃 决定颜色
-            await _apply_all_colors(connection)
+            await _apply_all_colors(connection, states=current, app=app)
 
             current_tab_prefixes = {
                 prefix
@@ -386,13 +437,15 @@ async def watch_idle_dir(connection):
                 return
 
 
-async def _apply_all_colors(connection):
+async def _apply_all_colors(connection, *, states=None, app=None):
     """读所有 state 文件，根据 color_stage + is_active 统一应用颜色。"""
-    states = read_state_files()
+    if states is None:
+        states = read_state_files()
     if not states:
         return
 
-    app = await iterm2.async_get_app(connection)
+    if app is None:
+        app = await iterm2.async_get_app(connection)
     tabs: dict[str, dict] = {}
 
     for path, state in states.items():
@@ -436,7 +489,8 @@ async def color_poller(connection):
 
     绝不直接调用 iTerm2 API 设色 —— 那是 watch 的职责。
     """
-    log(f"守护进程启动 ✅  监听间隔=1s  轮询间隔={POLL_INTERVAL}s  "
+    log(f"守护进程启动 ✅  监听间隔=0.5s  快速清理间隔={FAST_EXIT_CHECK_INTERVAL:.1f}s  "
+        f"轮询间隔={POLL_INTERVAL}s  "
         f"黄色阈值={CFG['THRESHOLD_YELLOW']}min  红色阈值={CFG['THRESHOLD_RED']}min")
 
     while True:
