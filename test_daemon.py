@@ -351,6 +351,20 @@ class TestIsAgentRunning(unittest.TestCase):
         import asyncio
         self.assertTrue(asyncio.run(daemon.is_claude_running(session)))
 
+    def test_session_foreground_shell_detects_finished_agent(self):
+        session = MagicMock()
+        session.async_get_variable = AsyncMock(return_value="zsh")
+
+        import asyncio
+        self.assertTrue(asyncio.run(daemon.session_foreground_is_shell(session)))
+
+    def test_session_foreground_non_shell_is_not_finished(self):
+        session = MagicMock()
+        session.async_get_variable = AsyncMock(return_value="codex")
+
+        import asyncio
+        self.assertFalse(asyncio.run(daemon.session_foreground_is_shell(session)))
+
 
 # ================================================================== #
 #  apply_tab_color — tab 颜色设置（mock iTerm2 API）
@@ -486,6 +500,63 @@ class TestApplyAllColors(unittest.TestCase):
         apply_mock.assert_called_once()
         _, args, _ = apply_mock.mock_calls[0]
         self.assertEqual(args[2], daemon.COLOR_RED)
+
+
+# ================================================================== #
+#  prune_finished_state_files — 快速退出清理
+# ================================================================== #
+
+class TestPruneFinishedStateFiles(unittest.TestCase):
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.mock_conn = MagicMock()
+        self.mock_app = MagicMock()
+        mock_iterm2.async_get_app = AsyncMock(return_value=self.mock_app)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _write_state(self, filename, session_id="UUID-1"):
+        path = Path(self.tmpdir) / filename
+        path.write_text(json.dumps({
+            "iterm2_session": f"w0t0p0:{session_id}",
+            "agent": "codex",
+            "idle_since": time.time(),
+            "color_stage": "green",
+        }))
+        return str(path)
+
+    def test_shell_pane_state_is_removed_without_process_scan(self):
+        path = self._write_state("codex.json")
+        session = MagicMock()
+        session.async_get_variable = AsyncMock(return_value="zsh")
+        self.mock_app.get_session_by_id.return_value = session
+
+        import asyncio
+        result = asyncio.run(daemon.prune_finished_state_files(
+            self.mock_conn,
+            {path: json.loads(Path(path).read_text())},
+        ))
+
+        self.assertEqual(result, {})
+        self.assertFalse(Path(path).exists())
+
+    def test_running_agent_state_is_kept(self):
+        path = self._write_state("codex.json")
+        session = MagicMock()
+        session.async_get_variable = AsyncMock(return_value="codex")
+        self.mock_app.get_session_by_id.return_value = session
+
+        import asyncio
+        result = asyncio.run(daemon.prune_finished_state_files(
+            self.mock_conn,
+            {path: json.loads(Path(path).read_text())},
+        ))
+
+        self.assertIn(path, result)
+        self.assertTrue(Path(path).exists())
 
 
 # ================================================================== #
