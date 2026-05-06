@@ -61,8 +61,8 @@ write_escape() {
     if [ -n "$TTY_DEV" ] && [ -w "$TTY_DEV" ]; then
         printf "%s" "$seq" > "$TTY_DEV"
     fi
-    # stdout 可能被 hook runtime 解析；只有真实终端才直接输出控制码。
-    if [ -t 1 ]; then
+    # Codex Stop hooks parse stdout as JSON; never write terminal escapes there.
+    if [ "$AGENT" != "codex" ] && [ -t 1 ]; then
         printf "%s" "$seq"
     fi
 }

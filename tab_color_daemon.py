@@ -21,6 +21,7 @@ import shlex
 import subprocess
 import time
 from pathlib import Path
+from typing import Optional
 
 import iterm2
 
@@ -123,7 +124,7 @@ def _is_shell_job(job_name: str) -> bool:
     return Path(job_name).name.lower() in shells
 
 
-def _normalize_agent(agent: str | None) -> str:
+def _normalize_agent(agent: Optional[str]) -> str:
     return agent if agent in AGENT_PROCESS_MARKERS else "claude"
 
 
@@ -150,7 +151,7 @@ def _command_matches_agent(comm: str, args: str, agent: str) -> bool:
     return any(marker in args_lower for marker in spec["arg_markers"])
 
 
-def _tty_has_agent_process(tty: str, agent: str) -> bool | None:
+def _tty_has_agent_process(tty: str, agent: str) -> Optional[bool]:
     """扫描 tty 上的进程；None 表示无法判断。"""
     tty_name = tty.replace("/dev/", "")
     if not tty_name:
@@ -175,7 +176,7 @@ def _tty_has_agent_process(tty: str, agent: str) -> bool | None:
         return None
 
 
-def _process_tree_has_agent(root_pid: int, agent: str) -> bool | None:
+def _process_tree_has_agent(root_pid: int, agent: str) -> Optional[bool]:
     """从 root_pid 向下扫描进程树；None 表示无法判断。"""
     try:
         pending = [str(root_pid)]
