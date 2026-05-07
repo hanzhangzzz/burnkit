@@ -3,3 +3,4 @@ __pycache__/
 .DS_Store
 .serena/
 *.tab-color-daemon.plist
+raw_think.md
