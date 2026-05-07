@@ -17,8 +17,17 @@ case "$AGENT" in
     *) exit 0 ;;
 esac
 
-# 加载配置（软链后路径仍指向 tools 目录的 config.sh）
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# 加载配置。兼容 macOS 默认 readlink，不依赖 readlink -f。
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+    TARGET="$(readlink "$SOURCE")"
+    case "$TARGET" in
+        /*) SOURCE="$TARGET" ;;
+        *) SOURCE="$DIR/$TARGET" ;;
+    esac
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.sh"
 
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -152,7 +161,6 @@ elif [ "$HOOK_EVENT" = "PreToolUse" ] || [ "$HOOK_EVENT" = "UserPromptSubmit" ];
     if [ -f "$STATE_FILE" ]; then
         rm -f "$STATE_FILE"
         # 立即通过 API 重置整个 tab（包括分屏 pane），不等 daemon 轮询
-        SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
         "$SCRIPT_DIR/reset_tab.py" "$ITERM_SESSION_ID" 2>/dev/null &
     fi
 fi
