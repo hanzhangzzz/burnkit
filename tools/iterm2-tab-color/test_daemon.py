@@ -33,6 +33,12 @@ class MockColor:
     def __repr__(self):
         return f"Color({self.r},{self.g},{self.b})"
 
+
+class MockItermColor:
+    def __init__(self, red, green, blue):
+        self.red, self.green, self.blue = red, green, blue
+
+
 mock_iterm2.Color = MockColor
 mock_iterm2.LocalWriteOnlyProfile = MagicMock
 mock_iterm2.async_get_app = AsyncMock()
@@ -143,6 +149,35 @@ class TestColorForStage(unittest.TestCase):
         self.assertEqual(daemon.max_stage("green", "yellow"), "yellow")
         self.assertEqual(daemon.max_stage("red", "green"), "red")
         self.assertEqual(daemon.max_stage("yellow", "red"), "red")
+
+
+class TestTabColorEscapeSequences(unittest.TestCase):
+
+    def test_reset_escape_sequence(self):
+        self.assertEqual(
+            daemon.escape_sequences_for_tab_color(None),
+            ["\033]6;1;bg;*;default\a"],
+        )
+
+    def test_color_escape_sequences(self):
+        self.assertEqual(
+            daemon.escape_sequences_for_tab_color(MockColor(200, 40, 40)),
+            [
+                "\033]6;1;bg;red;brightness;200\a",
+                "\033]6;1;bg;green;brightness;40\a",
+                "\033]6;1;bg;blue;brightness;40\a",
+            ],
+        )
+
+    def test_color_escape_sequences_accept_iterm2_color_attrs(self):
+        self.assertEqual(
+            daemon.escape_sequences_for_tab_color(MockItermColor(220, 160, 0)),
+            [
+                "\033]6;1;bg;red;brightness;220\a",
+                "\033]6;1;bg;green;brightness;160\a",
+                "\033]6;1;bg;blue;brightness;0\a",
+            ],
+        )
 
 
 # ================================================================== #
@@ -418,6 +453,41 @@ class TestApplyTabColor(unittest.TestCase):
         self.assertEqual(pane1.async_set_profile_properties.call_count, 1)
         self.assertEqual(pane2.async_set_profile_properties.call_count, 1)
 
+    def test_color_set_writes_escape_to_all_pane_ttys(self):
+        """iTerm2 Profile API 不稳定时，daemon 也应通过 tty escape 覆盖视觉颜色"""
+        pane1, pane2 = self._make_pane(), self._make_pane()
+        pane1.async_get_variable = AsyncMock(return_value="/dev/ttys001")
+        pane2.async_get_variable = AsyncMock(return_value="/dev/ttys002")
+        self._make_session(tab_sessions=[pane1, pane2])
+
+        import asyncio
+        with patch.object(daemon, "is_active_tab", return_value=False), \
+             patch.object(daemon, "_write_escape_to_tty") as write_escape:
+            asyncio.run(daemon.apply_tab_color(self.mock_conn, "UUID-1", MockColor(30, 180, 30)))
+
+        expected = daemon.escape_sequences_for_tab_color(MockColor(30, 180, 30))
+        write_escape.assert_has_calls([
+            call("/dev/ttys001", expected),
+            call("/dev/ttys002", expected),
+        ], any_order=True)
+
+    def test_color_none_writes_reset_escape_to_all_pane_ttys(self):
+        """重置 tab 时也要清掉 terminal escape 设置的 tab color"""
+        pane1, pane2 = self._make_pane(), self._make_pane()
+        pane1.async_get_variable = AsyncMock(return_value="/dev/ttys001")
+        pane2.async_get_variable = AsyncMock(return_value="/dev/ttys002")
+        self._make_session(tab_sessions=[pane1, pane2])
+
+        import asyncio
+        with patch.object(daemon, "_write_escape_to_tty") as write_escape:
+            asyncio.run(daemon.apply_tab_color(self.mock_conn, "UUID-1", None))
+
+        expected = daemon.escape_sequences_for_tab_color(None)
+        write_escape.assert_has_calls([
+            call("/dev/ttys001", expected),
+            call("/dev/ttys002", expected),
+        ], any_order=True)
+
     def test_color_skipped_for_active_tab(self):
         """活跃 tab 设色时应被跳过"""
         pane = self._make_pane()
@@ -500,6 +570,77 @@ class TestApplyAllColors(unittest.TestCase):
         apply_mock.assert_called_once()
         _, args, _ = apply_mock.mock_calls[0]
         self.assertEqual(args[2], daemon.COLOR_RED)
+
+
+class TestResetUntrackedTabColors(unittest.TestCase):
+
+    def setUp(self):
+        self.mock_conn = MagicMock()
+        self.mock_app = MagicMock()
+        mock_iterm2.async_get_app = AsyncMock(return_value=self.mock_app)
+
+    def _make_session(self, session_id, tab, use_tab_color):
+        session = MagicMock()
+        session.session_id = session_id
+        session.tab = tab
+        profile = MagicMock()
+        profile.use_tab_color = use_tab_color
+        session.async_get_profile = AsyncMock(return_value=profile)
+        return session
+
+    def _make_tab(self, tab_id, use_tab_color=True):
+        tab = MagicMock()
+        tab.tab_id = tab_id
+        session = self._make_session(f"session-{tab_id}", tab, use_tab_color)
+        tab.sessions = [session]
+        return tab, session
+
+    def test_resets_colored_tab_without_idle_state(self):
+        tab, session = self._make_tab("tab-stale", use_tab_color=True)
+        window = MagicMock()
+        window.tabs = [tab]
+        self.mock_app.terminal_windows = [window]
+        self.mock_app.get_session_by_id.return_value = None
+
+        import asyncio
+        with patch.object(daemon, "apply_tab_color", new_callable=AsyncMock) as apply_mock:
+            asyncio.run(daemon.reset_untracked_tab_colors(self.mock_conn, {}, app=self.mock_app))
+
+        apply_mock.assert_called_once_with(
+            self.mock_conn,
+            session.session_id,
+            None,
+            app=self.mock_app,
+            session=session,
+        )
+
+    def test_keeps_tab_with_idle_state(self):
+        tab, session = self._make_tab("tab-idle", use_tab_color=True)
+        window = MagicMock()
+        window.tabs = [tab]
+        self.mock_app.terminal_windows = [window]
+        self.mock_app.get_session_by_id.return_value = session
+
+        states = {"s.json": {"iterm2_session": f"w0t0p0:{session.session_id}"}}
+
+        import asyncio
+        with patch.object(daemon, "apply_tab_color", new_callable=AsyncMock) as apply_mock:
+            asyncio.run(daemon.reset_untracked_tab_colors(self.mock_conn, states, app=self.mock_app))
+
+        apply_mock.assert_not_called()
+
+    def test_ignores_uncolored_tab_without_idle_state(self):
+        tab, _ = self._make_tab("tab-clean", use_tab_color=False)
+        window = MagicMock()
+        window.tabs = [tab]
+        self.mock_app.terminal_windows = [window]
+        self.mock_app.get_session_by_id.return_value = None
+
+        import asyncio
+        with patch.object(daemon, "apply_tab_color", new_callable=AsyncMock) as apply_mock:
+            asyncio.run(daemon.reset_untracked_tab_colors(self.mock_conn, {}, app=self.mock_app))
+
+        apply_mock.assert_not_called()
 
 
 # ================================================================== #
