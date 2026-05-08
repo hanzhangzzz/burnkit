@@ -21,8 +21,6 @@ resolve_path() {
 
 SCRIPT_DIR="$(resolve_path "${BASH_SOURCE[0]}")"
 HOOK_SRC="$SCRIPT_DIR/tab_color_hook.sh"
-PLIST_SRC="$SCRIPT_DIR/$LABEL.plist"
-
 CLAUDE_HOOK_LINK="$HOME/.claude/hooks/tab_color_hook.sh"
 CODEX_HOOK_LINK="$HOME/.codex/hooks/tab_color_hook.sh"
 PLIST_LINK="$HOME/Library/LaunchAgents/$LABEL.plist"
@@ -57,7 +55,7 @@ iTerm2 Tab Color 卸载器
   1. 停止 launchd daemon
   2. 删除 ~/.claude/hooks/tab_color_hook.sh 软链
   3. 删除 ~/.codex/hooks/tab_color_hook.sh 软链
-  4. 删除 ~/Library/LaunchAgents/$LABEL.plist 软链
+  4. 删除 ~/Library/LaunchAgents/$LABEL.plist
   5. 从 Claude/Codex JSON 配置中移除 tab_color_hook.sh hook
 
 默认保留:
@@ -126,6 +124,27 @@ remove_symlink_if_present() {
     fi
 }
 
+remove_generated_file_if_present() {
+    local path="$1"
+    local label="$2"
+
+    if [ -L "$path" ]; then
+        if [ "$DRY_RUN" -eq 1 ]; then
+            log "将删除 $label 软链: $path -> $(readlink "$path")"
+        else
+            log "删除 $label 软链: $path -> $(readlink "$path")"
+        fi
+        run_cmd rm "$path"
+    elif [ -f "$path" ]; then
+        log "删除 $label 文件: $path"
+        run_cmd rm "$path"
+    elif [ -e "$path" ]; then
+        log "跳过 $label：$path 存在但不是普通文件或软链，未删除"
+    else
+        log "$label 不存在: $path"
+    fi
+}
+
 remove_hook_entries() {
     local path="$1"
     local label="$2"
@@ -188,7 +207,7 @@ stop_launchd() {
         launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
         launchctl unload "$PLIST_LINK" >/dev/null 2>&1 || true
     fi
-    remove_symlink_if_present "$PLIST_LINK" "launchd plist"
+    remove_generated_file_if_present "$PLIST_LINK" "launchd plist"
 }
 
 purge_state() {

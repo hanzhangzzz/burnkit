@@ -34,7 +34,7 @@
 - 感知当前活跃 tab：颜色作为非当前 tab 的提醒标记
 - 快速退出清理：pane 回到 `zsh`/`bash` 后快速清理，不增加重型进程扫描频率
 - 支持配置时间阈值、颜色、轮询间隔和并发提示
-- macOS launchd 托管，支持崩溃和重启后自动恢复
+- macOS launchd 托管，支持登录自启动、KeepAlive 和 iTerm2 断线重连
 
 ## 快速开始
 
@@ -57,7 +57,7 @@ bash tools/iterm2-tab-color/install.sh
 安装脚本会：
 
 - 创建 Claude/Codex hook 软链
-- 创建 launchd daemon plist
+- 写入真实 launchd plist：`~/Library/LaunchAgents/com.duying.tab-color-daemon.plist`
 - 注册 Claude Code hooks：`Stop` 和 `PreToolUse`
 - 创建/更新 `~/.codex/hooks.json`，并注册静默 Codex hooks：`Stop`、`PreToolUse`、`UserPromptSubmit`
 - 启动后台 daemon，并设置为登录后自动启动
@@ -146,6 +146,7 @@ iTerm2 tab color
 ### Daemon
 
 `tab_color_daemon.py` 由 launchd 托管，是唯一通过 iTerm2 API 写颜色的组件。
+它启用 iTerm2 Python API retry；iTerm2 重启、升级或 websocket 断开后会尝试自动重连，避免 idle state 停留在绿色且不再升级。
 
 - Watch loop，每 500ms：读取 state 文件，轻量清理已回到 shell 的 pane，应用 tab 颜色，并重置最后一个 state 消失的 tab。
 - 快速退出清理，每 1 秒最多一次：只使用 iTerm2 `jobName` 判断，不增加 `ps`/`pgrep` 重型扫描开销。
@@ -171,7 +172,7 @@ daemon 会按 iTerm2 tab 聚合 state。只有当 tab 当前活跃，或该 tab 
 - `~/.codex/hooks/tab_color_hook.sh` -> 指向本工具目录的软链
 - `~/.claude/idle_state/*.json` -> 每个 session 的 idle state
 - `~/.claude/idle_state/daemon.log` -> daemon 日志
-- `~/Library/LaunchAgents/*.tab-color-daemon.plist` -> 生成的 launchd plist
+- `~/Library/LaunchAgents/com.duying.tab-color-daemon.plist` -> 生成的 launchd plist 真实文件
 
 ## 常用命令
 
@@ -185,7 +186,7 @@ tail -f ~/.claude/idle_state/daemon.log
 # 重启 daemon
 launchctl kickstart -k gui/$(id -u)/com.duying.tab-color-daemon
 
-# 删除运行时软链
+# 删除运行时文件
 launchctl unload ~/Library/LaunchAgents/com.duying.tab-color-daemon.plist
 rm ~/.claude/hooks/tab_color_hook.sh
 rm ~/.codex/hooks/tab_color_hook.sh
@@ -197,9 +198,9 @@ rm ~/Library/LaunchAgents/com.duying.tab-color-daemon.plist
 ## 开发
 
 ```bash
+bash -n install.sh uninstall.sh tab_color_hook.sh
+python3 -m py_compile tab_color_daemon.py reset_tab.py test_daemon.py
 python3 -m unittest test_daemon.py
-python3 -m py_compile tab_color_daemon.py test_daemon.py
-bash -n install.sh tab_color_hook.sh
 ```
 
 以上开发命令在 `tools/iterm2-tab-color/` 目录下执行。

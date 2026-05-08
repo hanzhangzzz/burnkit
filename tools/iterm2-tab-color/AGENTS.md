@@ -4,9 +4,9 @@
 
 本文件是给后续 AI/维护者的操作手册。修改本工具前先读完本文件，再读 `README.md`、`README.zh-CN.md` 和相关源码。
 
-## 当前迁移边界
+## 目录迁移边界
 
-当前阶段只做目录整理和路径适配，不能混入功能修复。
+目录迁移阶段只做目录整理和路径适配，不能混入功能修复。
 
 行为基准：
 
@@ -57,9 +57,11 @@ bash tools/iterm2-tab-color/install.sh --dry-run
 | `~/.codex/hooks.json` | Codex hook 注册位置 |
 | `~/.claude/idle_state/*.json` | 每个 idle AI session 的 state 文件 |
 | `~/.claude/idle_state/daemon.log` | daemon stdout/stderr 日志 |
-| `~/Library/LaunchAgents/com.duying.tab-color-daemon.plist` | launchd plist 软链 |
+| `~/Library/LaunchAgents/com.duying.tab-color-daemon.plist` | launchd plist 真实文件 |
 
 安装脚本会在修改 JSON 配置前创建 `.bak.YYYYmmdd-HHMMSS` 备份。
+
+LaunchAgent plist 必须是 `~/Library/LaunchAgents/` 下的真实文件。不要把它安装成指向仓库目录的软链；登录自动加载和 `KeepAlive` 兜底都依赖当前用户 launchd domain 中存在真实 job。
 
 ## 重启与排查
 
@@ -217,6 +219,8 @@ iTerm2 tab color
 - hook 用 terminal escape sequence 快速设绿/重置，反馈快但主要作用于当前终端。
 - daemon 用 iTerm2 Python API 给整个 tab 的所有 pane 统一设色，覆盖 split pane 场景。
 
+daemon 入口必须使用 `iterm2.run_forever(main, retry=True)`，这样 iTerm2 重启、升级或 websocket 断开后，Python API 会尝试自动重连。
+
 ## 配置
 
 配置文件：`tools/iterm2-tab-color/config.sh`。
@@ -272,5 +276,7 @@ python3 -m unittest test_daemon.py
 - 不要把 Codex hook 的 stdout 写出 escape sequence 或普通文本。Codex Stop hook 会校验 stdout，安装脚本使用静默命令是必要的。
 - 不要假设 `ITERM_SESSION_ID` 可以直接传给 `app.get_session_by_id()`；必须取冒号后的 UUID。
 - 不要依赖 `readlink -f`，macOS 默认 `readlink` 不支持该参数；路径解析要兼容 macOS。
+- 不要把 LaunchAgent plist 安装成软链。plist 应写入 `~/Library/LaunchAgents/com.duying.tab-color-daemon.plist` 真实文件，再执行 `launchctl bootstrap`。
+- 不要把 daemon 入口退回 `iterm2.run_forever(main)` 默认参数；默认 `retry=False`，iTerm2 重启或升级后 websocket 断开会导致 daemon 不再处理黄/红升级和 active tab 清色。
 - 不要默认删除 `~/.claude/idle_state` 和日志。卸载默认保留，只有 `--purge-state` 才删除。
 - 不要提交 `tools/claude-provider-router/config.env`；这是另一个工具的敏感本地配置。
