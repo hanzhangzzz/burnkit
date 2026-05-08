@@ -26,8 +26,6 @@ HOOK_SRC="$SCRIPT_DIR/tab_color_hook.sh"
 DAEMON_SRC="$SCRIPT_DIR/tab_color_daemon.py"
 RESET_SRC="$SCRIPT_DIR/reset_tab.py"
 CONFIG_SRC="$SCRIPT_DIR/config.sh"
-PLIST_SRC="$SCRIPT_DIR/$LABEL.plist"
-
 CLAUDE_HOOK_LINK="$HOME/.claude/hooks/tab_color_hook.sh"
 CODEX_HOOK_LINK="$HOME/.codex/hooks/tab_color_hook.sh"
 PLIST_LINK="$HOME/Library/LaunchAgents/$LABEL.plist"
@@ -61,8 +59,8 @@ iTerm2 Tab Color 安装器
 会执行的变更:
   1. 创建/更新 ~/.claude/hooks/tab_color_hook.sh -> $HOOK_SRC
   2. 创建/更新 ~/.codex/hooks/tab_color_hook.sh -> $HOOK_SRC
-  3. 生成 launchd plist: $PLIST_SRC
-  4. 创建/更新 ~/Library/LaunchAgents/$LABEL.plist -> $PLIST_SRC
+  3. 生成 launchd plist: $PLIST_LINK
+  4. 注册并启动 launchd daemon
   5. 注册 Claude hooks: Stop, PreToolUse
   6. 注册 Codex hooks: Stop, PreToolUse, UserPromptSubmit
 EOF
@@ -198,17 +196,26 @@ EOF
 
 write_plist() {
     section "生成 launchd plist"
-    log "plist: $PLIST_SRC"
+    log "plist: $PLIST_LINK"
     log "daemon: $DAEMON_SRC"
     log "log: $DAEMON_LOG"
 
+    if [ -L "$PLIST_LINK" ]; then
+        log "launchd plist 当前是软链，将替换为真实文件: $PLIST_LINK -> $(readlink "$PLIST_LINK")"
+        run_cmd rm "$PLIST_LINK"
+    elif [ -e "$PLIST_LINK" ]; then
+        log "launchd plist 已存在，将先备份再替换: $PLIST_LINK"
+        backup_file "$PLIST_LINK"
+        run_cmd rm "$PLIST_LINK"
+    fi
+
     if [ "$DRY_RUN" -eq 1 ]; then
-        log "[dry-run] 写入 $PLIST_SRC"
+        log "[dry-run] 写入 $PLIST_LINK"
         return 0
     fi
 
     PYTHON3="$PYTHON3" \
-    PLIST_SRC="$PLIST_SRC" \
+    PLIST_LINK="$PLIST_LINK" \
     DAEMON_SRC="$DAEMON_SRC" \
     DAEMON_LOG="$DAEMON_LOG" \
     LABEL="$LABEL" \
@@ -226,7 +233,7 @@ data = {
     "ThrottleInterval": 10,
 }
 
-with open(os.environ["PLIST_SRC"], "wb") as f:
+with open(os.environ["PLIST_LINK"], "wb") as f:
     plistlib.dump(data, f, sort_keys=False)
 PY
 }
@@ -418,7 +425,6 @@ restart_launchd() {
     }
 
     section "安装并启动 launchd daemon"
-    install_symlink "$PLIST_SRC" "$PLIST_LINK" "launchd plist"
 
     if [ "$DRY_RUN" -eq 1 ]; then
         log "[dry-run] launchctl bootout gui/$(id -u)/$LABEL"

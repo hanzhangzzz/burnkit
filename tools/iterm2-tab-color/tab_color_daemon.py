@@ -564,5 +564,9 @@ async def main(connection):
     await asyncio.Event().wait()
 
 
+def run_daemon():
+    iterm2.run_forever(main, retry=True)
+
+
 if __name__ == "__main__":
-    iterm2.run_forever(main)
+    run_daemon()

@@ -745,6 +745,20 @@ class TestPollerDecisionLogic(unittest.TestCase):
 
 
 # ================================================================== #
+#  Daemon 入口 — iTerm2 断线重连
+# ================================================================== #
+
+class TestDaemonEntrypoint(unittest.TestCase):
+
+    def test_run_daemon_enables_iterm2_retry(self):
+        """iTerm2 重启/升级断开 websocket 后，daemon 应允许 API 自动重连。"""
+        with patch.object(daemon.iterm2, "run_forever") as run_forever:
+            daemon.run_daemon()
+
+        run_forever.assert_called_once_with(daemon.main, retry=True)
+
+
+# ================================================================== #
 #  运行
 # ================================================================== #
 

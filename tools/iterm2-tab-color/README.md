@@ -34,7 +34,7 @@ Important rules:
 - Active-tab awareness: colors work as notification badges
 - Fast exit cleanup: panes that return to `zsh`/`bash` are pruned quickly without increasing heavy process scans
 - Configurable thresholds, colors, poll interval, and concurrency hint
-- macOS launchd daemon with auto-restart
+- macOS launchd daemon with login auto-launch, KeepAlive, and iTerm2 reconnect support
 
 ## Quick Start
 
@@ -57,7 +57,7 @@ bash tools/iterm2-tab-color/install.sh
 The installer will:
 
 - Create symlinks for Claude/Codex hooks
-- Create a launchd plist for the daemon
+- Write a real launchd plist to `~/Library/LaunchAgents/com.duying.tab-color-daemon.plist`
 - Register Claude Code hooks: `Stop` and `PreToolUse`
 - Create/update `~/.codex/hooks.json` and register silent Codex hooks: `Stop`, `PreToolUse`, and `UserPromptSubmit`
 - Start the background daemon and enable auto-launch on login
@@ -146,6 +146,7 @@ iTerm2 tab color
 ### Daemon
 
 `tab_color_daemon.py` is managed by launchd and is the single writer for iTerm2 API color changes.
+It starts the iTerm2 Python API with retry enabled, so iTerm2 restarts, upgrades, or websocket disconnects can reconnect instead of leaving idle states unprocessed.
 
 - Watch loop, every 500ms: reads state files, does lightweight cleanup for panes that returned to shell, applies tab colors, and resets tabs whose last state disappeared.
 - Fast exit cleanup, every 1s at most: uses iTerm2 `jobName` only, so it does not increase `ps`/`pgrep` process-scan load.
@@ -171,7 +172,7 @@ The daemon groups state by iTerm2 tab. A tab is white only when it is active or 
 - `~/.codex/hooks/tab_color_hook.sh` -> symlink to this tool directory
 - `~/.claude/idle_state/*.json` -> per-session idle state
 - `~/.claude/idle_state/daemon.log` -> daemon log
-- `~/Library/LaunchAgents/*.tab-color-daemon.plist` -> generated launchd plist
+- `~/Library/LaunchAgents/com.duying.tab-color-daemon.plist` -> generated launchd plist file
 
 ## Commands
 
@@ -185,7 +186,7 @@ tail -f ~/.claude/idle_state/daemon.log
 # Restart daemon
 launchctl kickstart -k gui/$(id -u)/com.duying.tab-color-daemon
 
-# Uninstall runtime links
+# Remove runtime files
 launchctl unload ~/Library/LaunchAgents/com.duying.tab-color-daemon.plist
 rm ~/.claude/hooks/tab_color_hook.sh
 rm ~/.codex/hooks/tab_color_hook.sh
@@ -197,9 +198,9 @@ After uninstalling, remove `tab_color_hook.sh` entries from `~/.claude/settings.
 ## Development
 
 ```bash
+bash -n install.sh uninstall.sh tab_color_hook.sh
+python3 -m py_compile tab_color_daemon.py reset_tab.py test_daemon.py
 python3 -m unittest test_daemon.py
-python3 -m py_compile tab_color_daemon.py test_daemon.py
-bash -n install.sh tab_color_hook.sh
 ```
 
 Run these commands from `tools/iterm2-tab-color/`.
