@@ -286,6 +286,7 @@ async def apply_tab_color(connection, iterm2_session_id: str, color, *, app=None
             change.set_tab_color(color)
             change.set_use_tab_color(True)
         await s.async_set_profile_properties(change)
+        await write_tab_color_escape(s, color)
 
 
 def compute_color_stage(idle_seconds: float) -> str:
@@ -302,6 +303,88 @@ def color_for_stage(stage: str) -> iterm2.Color:
 
 def max_stage(left: str, right: str) -> str:
     return left if STAGE_RANK.get(left, 0) >= STAGE_RANK.get(right, 0) else right
+
+
+def _color_component(value) -> int:
+    return max(0, min(255, int(round(value))))
+
+
+def _color_attr(color, primary: str, fallback: str):
+    if hasattr(color, primary):
+        return getattr(color, primary)
+    return getattr(color, fallback)
+
+
+def escape_sequences_for_tab_color(color: Optional[iterm2.Color]) -> list[str]:
+    if color is None:
+        return ["\033]6;1;bg;*;default\a"]
+    red = _color_attr(color, "red", "r")
+    green = _color_attr(color, "green", "g")
+    blue = _color_attr(color, "blue", "b")
+    return [
+        f"\033]6;1;bg;red;brightness;{_color_component(red)}\a",
+        f"\033]6;1;bg;green;brightness;{_color_component(green)}\a",
+        f"\033]6;1;bg;blue;brightness;{_color_component(blue)}\a",
+    ]
+
+
+def _write_escape_to_tty(tty: str, sequences: list[str]):
+    if not isinstance(tty, str) or not tty.startswith("/dev/tty"):
+        return
+    try:
+        with open(tty, "w") as f:
+            for seq in sequences:
+                f.write(seq)
+    except OSError:
+        pass
+
+
+async def write_tab_color_escape(session, color: Optional[iterm2.Color]):
+    try:
+        tty = await session.async_get_variable("tty")
+    except Exception:
+        return
+    _write_escape_to_tty(tty, escape_sequences_for_tab_color(color))
+
+
+def _profile_value(profile, name: str):
+    value = getattr(profile, name, None)
+    return value() if callable(value) else value
+
+
+async def session_uses_tab_color(session) -> bool:
+    try:
+        profile = await session.async_get_profile()
+        return bool(_profile_value(profile, "use_tab_color"))
+    except Exception:
+        return False
+
+
+async def reset_untracked_tab_colors(connection, states: dict[str, dict], *, app=None):
+    """重置没有 idle state、但仍残留 tab color 的 tab。"""
+    if app is None:
+        app = await iterm2.async_get_app(connection)
+
+    idle_tab_ids = set()
+    for state in states.values():
+        sid = state.get("iterm2_session", "")
+        if not sid:
+            continue
+        session = app.get_session_by_id(extract_uuid(sid))
+        if session is not None and session.tab is not None:
+            idle_tab_ids.add(session.tab.tab_id)
+
+    for window in app.terminal_windows or []:
+        for tab in window.tabs:
+            if tab.tab_id in idle_tab_ids:
+                continue
+            sessions = list(tab.sessions)
+            if not sessions:
+                continue
+            if not any([await session_uses_tab_color(s) for s in sessions]):
+                continue
+            log(f"清理残留颜色: tab {tab.tab_id} 没有 idle state → 重置颜色")
+            await apply_tab_color(connection, sessions[0].session_id, None, app=app, session=sessions[0])
 
 
 def read_state_files() -> dict[str, dict]:
@@ -392,6 +475,7 @@ async def watch_idle_dir(connection):
 
     # 启动后立即做一次全量上色
     await _apply_all_colors(connection)
+    await reset_untracked_tab_colors(connection, known)
 
     while True:
         await asyncio.sleep(0.5)
@@ -400,9 +484,11 @@ async def watch_idle_dir(connection):
 
             now = time.monotonic()
             app = None
-            if current and now - last_exit_check >= FAST_EXIT_CHECK_INTERVAL:
+            if now - last_exit_check >= FAST_EXIT_CHECK_INTERVAL:
                 app = await iterm2.async_get_app(connection)
-                current = await prune_finished_state_files(connection, current, app=app)
+                if current:
+                    current = await prune_finished_state_files(connection, current, app=app)
+                await reset_untracked_tab_colors(connection, current, app=app)
                 last_exit_check = now
 
             # 消失的文件 → 记住 session 以便重置
