@@ -1,0 +1,122 @@
+#!/usr/bin/env node
+import { usageFromClaudeStatusLine, readStdin } from "./claude.js";
+import { install, uninstall } from "./install.js";
+import { saveUsage } from "./store.js";
+import { formatStatusRows, formatAnalysisDetail, formatIssues, formatProviderMeta } from "./format.js";
+import { loadDisplayStatusSnapshot } from "./runtime.js";
+import { runDaemonOnce } from "./daemon.js";
+import { formatDoctor, runDoctor } from "./doctor.js";
+import { installMenuBar, renderMenuBar, uninstallMenuBar } from "./menubar.js";
+
+function hasFlag(args: string[], flag: string) {
+  return args.includes(flag);
+}
+
+function printHelp() {
+  console.log(`Burn AI
+
+Usage:
+  burn-ai install [--dry-run]
+  burn-ai uninstall [--dry-run]
+  burn-ai doctor [--dry-run]
+  burn-ai status [--fixtures] [--json] [--refresh]
+  burn-ai menubar render
+  burn-ai menubar install [--dry-run]
+  burn-ai menubar uninstall [--dry-run]
+  burn-ai ingest claude-statusline
+  burn-ai daemon [--once] [--dry-run]
+`);
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const command = args[0];
+  const subcommand = args[1];
+  const dryRun = hasFlag(args, "--dry-run");
+
+  try {
+    if (!command || command === "-h" || command === "--help") {
+      printHelp();
+      return;
+    }
+
+    if (command === "install") {
+      console.log(install({ dryRun }).join("\n"));
+      return;
+    }
+
+    if (command === "uninstall") {
+      console.log(uninstall({ dryRun }).join("\n"));
+      return;
+    }
+
+    if (command === "doctor") {
+      console.log(formatDoctor(runDoctor({ dryRun })));
+      return;
+    }
+
+    if (command === "status") {
+      const fixtures = hasFlag(args, "--fixtures");
+      const json = hasFlag(args, "--json");
+      const refresh = hasFlag(args, "--refresh");
+      const snapshot = loadDisplayStatusSnapshot({ fixtures, refresh });
+      if (json) {
+        console.log(JSON.stringify(snapshot, null, 2));
+        return;
+      }
+      const usages = snapshot.providers.map((provider) => provider.usage);
+      const analyses = snapshot.providers.map((provider) => provider.analysis);
+      console.log(formatStatusRows(usages, analyses));
+      console.log("");
+      for (const analysis of analyses) {
+        console.log(formatAnalysisDetail(analysis));
+      }
+      const meta = formatProviderMeta(snapshot);
+      if (meta) {
+        console.log("");
+        console.log(meta);
+      }
+      const issues = formatIssues(snapshot.issues);
+      if (issues) {
+        console.log("");
+        console.log(issues);
+      }
+      return;
+    }
+
+    if (command === "menubar" && subcommand === "render") {
+      console.log(renderMenuBar());
+      return;
+    }
+
+    if (command === "menubar" && subcommand === "install") {
+      console.log(installMenuBar({ dryRun }).join("\n"));
+      return;
+    }
+
+    if (command === "menubar" && subcommand === "uninstall") {
+      console.log(uninstallMenuBar({ dryRun }).join("\n"));
+      return;
+    }
+
+    if (command === "ingest" && subcommand === "claude-statusline") {
+      const input = await readStdin();
+      const parsed = JSON.parse(input);
+      const usage = usageFromClaudeStatusLine(parsed);
+      saveUsage(usage);
+      return;
+    }
+
+    if (command === "daemon") {
+      console.log(runDaemonOnce({ dryRun }).join("\n"));
+      return;
+    }
+
+    throw new Error(`Unknown command: ${args.join(" ")}`);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+}
+
+await main();

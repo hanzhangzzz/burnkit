@@ -94,6 +94,18 @@ pip3 install iterm2
 bash tools/iterm2-tab-color/install.sh
 ```
 
+Install Burn AI:
+
+```bash
+cd tools/burn-ai
+npm install
+npx burn-ai install
+burn-ai doctor
+burn-ai status
+```
+
+Burn AI installs a local runtime at `~/.burn-ai/app`, creates a `burn-ai` CLI shim in `~/.local/bin`, installs the macOS launchd collector, and sets up a SwiftBar menu bar plugin. It does not manage Claude Code or Codex login state.
+
 Then open several Claude Code or Codex CLI sessions, ask them to do real work, and stop pretending you can remember which tab needs you.
 
 ## What It Feels Like
@@ -155,6 +167,21 @@ For iTerm2 Tab Color changes:
 bash -n tools/iterm2-tab-color/install.sh tools/iterm2-tab-color/uninstall.sh tools/iterm2-tab-color/tab_color_hook.sh
 python3 -m py_compile tools/iterm2-tab-color/tab_color_daemon.py tools/iterm2-tab-color/reset_tab.py tools/iterm2-tab-color/test_daemon.py
 python3 -m unittest tools/iterm2-tab-color/test_daemon.py
+```
+
+For Burn AI changes:
+
+```bash
+cd tools/burn-ai
+npm ci
+npm test
+npm run build
+npx --no-install burn-ai install
+burn-ai install
+npx --no-install burn-ai doctor --dry-run
+npx --no-install burn-ai status --fixtures
+npx --no-install burn-ai menubar render
+git diff --check
 ```
 
 ## License

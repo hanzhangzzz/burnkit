@@ -1,0 +1,40 @@
+import os from "node:os";
+import path from "node:path";
+import { RuntimePaths } from "./types.js";
+
+export function buildPaths(homeDir = os.homedir()): RuntimePaths {
+  const stateDir = path.join(homeDir, ".burn-ai");
+  return {
+    homeDir,
+    stateDir,
+    configFile: path.join(stateDir, "config.json"),
+    claudeDir: path.join(stateDir, "claude"),
+    codexDir: path.join(stateDir, "codex"),
+    notificationStateFile: path.join(stateDir, "notifications.json"),
+    statusFile: path.join(stateDir, "status.json"),
+    cliBinDir: path.join(homeDir, ".local", "bin"),
+    cliBinFile: path.join(homeDir, ".local", "bin", "burn-ai"),
+    swiftBarPluginDir: path.join(homeDir, "Library", "Application Support", "SwiftBar", "Plugins"),
+    swiftBarPluginFile: path.join(homeDir, "Library", "Application Support", "SwiftBar", "Plugins", "burn-ai.1m.js"),
+    launchAgentFile: path.join(
+      homeDir,
+      "Library",
+      "LaunchAgents",
+      "com.duying.burn-ai.plist",
+    ),
+    claudeSettingsFile: path.join(homeDir, ".claude", "settings.json"),
+    claudeStatusLineScript: path.join(stateDir, "claude", "statusline.sh"),
+  };
+}
+
+export function installedAssetPath(homeDir: string, assetName: string) {
+  return path.join(homeDir, ".burn-ai", "app", "assets", assetName);
+}
+
+export function providerLatestPath(paths: RuntimePaths, provider: "claude" | "codex") {
+  return path.join(provider === "claude" ? paths.claudeDir : paths.codexDir, "latest.json");
+}
+
+export function providerSamplesPath(paths: RuntimePaths, provider: "claude" | "codex") {
+  return path.join(provider === "claude" ? paths.claudeDir : paths.codexDir, "samples.jsonl");
+}

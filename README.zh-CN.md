@@ -94,6 +94,18 @@ pip3 install iterm2
 bash tools/iterm2-tab-color/install.sh
 ```
 
+安装 Burn AI：
+
+```bash
+cd tools/burn-ai
+npm install
+npx burn-ai install
+burn-ai doctor
+burn-ai status
+```
+
+Burn AI 会安装本地运行副本到 `~/.burn-ai/app`，在 `~/.local/bin` 创建 `burn-ai` 命令软链，安装 macOS launchd 采集器，并配置 SwiftBar 菜单栏插件。它不负责 Claude Code 或 Codex 的登录态。
+
 然后开几个 Claude Code 或 Codex CLI session，让它们干活，再停止幻想自己能记住每个 tab 到底跑到哪了。
 
 ## 用起来是什么感觉
@@ -155,6 +167,21 @@ tab 5：完了
 bash -n tools/iterm2-tab-color/install.sh tools/iterm2-tab-color/uninstall.sh tools/iterm2-tab-color/tab_color_hook.sh
 python3 -m py_compile tools/iterm2-tab-color/tab_color_daemon.py tools/iterm2-tab-color/reset_tab.py tools/iterm2-tab-color/test_daemon.py
 python3 -m unittest tools/iterm2-tab-color/test_daemon.py
+```
+
+修改 Burn AI 后至少运行：
+
+```bash
+cd tools/burn-ai
+npm ci
+npm test
+npm run build
+npx --no-install burn-ai install
+burn-ai install
+npx --no-install burn-ai doctor --dry-run
+npx --no-install burn-ai status --fixtures
+npx --no-install burn-ai menubar render
+git diff --check
 ```
 
 ## License

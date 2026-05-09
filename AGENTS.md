@@ -8,6 +8,7 @@
 |------|------|
 | `tools/claude-provider-router/` | 第一件工具：`c` 启动器、Provider 配置、Team 路由代理、Claude Code status line |
 | `tools/iterm2-tab-color/` | 第二件工具：Claude Code / Codex CLI idle hook、iTerm2 tab color daemon |
+| `tools/burn-ai/` | 第三件工具：Claude Code / Codex coding plan usage 采集、燃烧策略、系统通知 |
 | `assets/` | 演示图、发布素材 |
 | `raw_think.md` | 本地想法草稿，不作为产品承诺 |
 
@@ -23,7 +24,11 @@
 
 ## 维护原则
 
-- 第三个工具未明确前只保留占位，不做推测性实现。
+- `tools/burn-ai/` 不处理登录态、不托管凭据、不主动请求内部 usage API；只读取本机 Claude/Codex 已产生的 usage 结果。
+- `tools/burn-ai/` 的默认分发入口是 `npx burn-ai install`，日常命令是 `burn-ai doctor/status`。
+- `tools/burn-ai/` 的 v1 展示层是 SwiftBar 菜单栏插件。安装器必须优先读取 SwiftBar 当前 `PluginDirectory`，把 `burn-ai.1m.js` 写到用户实际插件目录；不能假设默认目录一定生效。
+- `tools/burn-ai/` 安装器必须支持两条真实路径：从 `npx --no-install burn-ai install` 更新 `~/.burn-ai/app`，以及从已安装 shim 直接执行 `burn-ai install` 时不能删除正在运行的 runtime，只刷新插件、CLI shim 和 launchd。
+- Claude Code 已有 status line 属于用户资产；`tools/burn-ai/` 不能覆盖、透明代理或自动改写用户已有 status line，只能提示用户手动接入 Burn AI ingest。
 - `tools/claude-provider-router/config.env` 是敏感本地配置，不能提交；只维护 `config.env.example`。
 - `tools/iterm2-tab-color/install.sh` 依赖同目录脚本相对路径，移动文件时必须同步安装文档和测试命令。
 - `tools/iterm2-tab-color/uninstall.sh` 必须与 install 行为对称：停止 launchd、删除 hook 软链和 launchd plist、清理 JSON hook 条目，并默认保留 state/log。
@@ -42,3 +47,19 @@ python3 -m unittest tools/iterm2-tab-color/test_daemon.py
 ```
 
 如果修改 `tools/claude-provider-router/`，还要对该目录的 shell/Python 文件执行对应语法检查。
+
+如果修改 `tools/burn-ai/`，至少运行：
+
+```bash
+cd tools/burn-ai
+npm ci
+npm test
+npm run build
+npx --no-install burn-ai install
+burn-ai install
+npx --no-install burn-ai doctor --dry-run
+npx --no-install burn-ai status --fixtures
+npx --no-install burn-ai menubar render
+```
+
+`npx --no-install burn-ai install` 是真实安装验证，必须确认它会复制最新代码并重启 launchd agent；随后还必须跑一次 `burn-ai install`，确认已安装入口重复安装不会自删 runtime，且 SwiftBar 插件仍能渲染。

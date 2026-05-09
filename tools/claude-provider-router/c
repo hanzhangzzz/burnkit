@@ -48,6 +48,11 @@ CONFIG_2_AUTH_TOKEN=your-token-here
 # 配置 3 - 最强模型 (Opus)
 CONFIG_3_BASE_URL=https://api.anthropic.com
 CONFIG_3_AUTH_TOKEN=your-token-here
+
+# 可选配置项:
+# CONFIG_X_COMPACT_WINDOW=750000  # compact 触发阈值（tokens）
+# CONFIG_X_MODEL=MiniMax-M2.7     # 强制指定模型名
+# CONFIG_X_EFFORT=max             # 思考深度: minimal/low/medium/high/max
 EOF
         chmod 600 "$CONFIG_FILE"
         echo -e "${GREEN}已创建模板: $CONFIG_FILE${NC}"
@@ -206,11 +211,13 @@ start_single() {
     local auth_token
     local compact_window
     local model
+    local effort
 
     base_url=$(read_config_field "$config_num" "BASE_URL")
     auth_token=$(read_config_field "$config_num" "AUTH_TOKEN")
     compact_window=$(read_config_field "$config_num" "COMPACT_WINDOW")
     model=$(read_config_field "$config_num" "MODEL")
+    effort=$(read_config_field "$config_num" "EFFORT")
 
     [[ -z "$base_url" ]]    && die "配置 $config_num 的 BASE_URL 未找到"
     [[ -z "$auth_token" ]]  && die "配置 $config_num 的 AUTH_TOKEN 未找到"
@@ -252,6 +259,13 @@ start_single() {
         echo -e "${BLUE}   Compact: 默认 (~150K tokens)${NC}"
     fi
 
+    if [[ -n "$effort" ]]; then
+        export CLAUDE_CODE_EFFORT_LEVEL="$effort"
+        echo -e "${MAGENTA}   Effort: ${effort}${NC}"
+    else
+        unset CLAUDE_CODE_EFFORT_LEVEL
+    fi
+
     command -v claude &>/dev/null || die "claude 命令未找到"
 
     exec claude --dangerously-skip-permissions --settings "$C_SETTINGS" --teammate-mode tmux "$@"
@@ -269,11 +283,12 @@ start_team() {
     check_config
 
     # 读取 leader 配置
-    local leader_url leader_token leader_compact leader_model
+    local leader_url leader_token leader_compact leader_model leader_effort
     leader_url=$(read_config_field "$leader_num" "BASE_URL")
     leader_token=$(read_config_field "$leader_num" "AUTH_TOKEN")
     leader_compact=$(read_config_field "$leader_num" "COMPACT_WINDOW")
     leader_model=$(read_config_field "$leader_num" "MODEL")
+    leader_effort=$(read_config_field "$leader_num" "EFFORT")
 
     [[ -z "$leader_url" ]]   && die "leader 配置 $leader_num 的 BASE_URL 未找到"
     [[ -z "$leader_token" ]] && die "leader 配置 $leader_num 的 AUTH_TOKEN 未找到"
@@ -312,6 +327,14 @@ start_team() {
         echo -e "${BLUE}   Compact: ${leader_compact} tokens${NC}"
     else
         unset CLAUDE_CODE_AUTO_COMPACT_WINDOW
+    fi
+
+    # effort 用 leader 的
+    if [[ -n "$leader_effort" ]]; then
+        export CLAUDE_CODE_EFFORT_LEVEL="$leader_effort"
+        echo -e "${MAGENTA}   Effort: ${leader_effort}${NC}"
+    else
+        unset CLAUDE_CODE_EFFORT_LEVEL
     fi
 
     # 清除旧的模型 override，让路由代理完全接管
