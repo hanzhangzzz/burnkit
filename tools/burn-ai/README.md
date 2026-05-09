@@ -1,10 +1,19 @@
 # Burn AI
 
-Burn AI monitors local Claude Code and Codex coding plan usage, then tells you whether your current pace is under-burning, on track, over-burning, or close to a limit.
+Burn AI is BurnKit's plan-burn layer. It monitors local Claude Code and Codex coding plan usage, then tells you whether your current pace is under-burning, on track, over-burning, or close to a limit.
 
 It does not manage login state, credentials, or API keys. It only reads usage data already produced by local Claude Code and Codex tooling.
 
 ## Quick Start
+
+From the BurnKit repo root:
+
+```bash
+bin/burnkit install burn
+bin/burnkit status --refresh
+```
+
+Direct package flow:
 
 ```bash
 npx burn-ai install

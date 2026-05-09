@@ -1,6 +1,6 @@
 # Claude Provider Router
 
-> 卷死你三件套第一件：让 Claude Code 的模型、Provider、Team 路由和状态行更可控。
+> BurnKit 第一件工具：让 Claude Code 的模型、Provider、Team 路由和状态行更可控。
 
 这个目录整合了原有 `c` 工具。`c` 是主入口，负责按编号启动 Claude Code；Team 模式下会启动本地 FastAPI 路由代理，把 leader 和 teammate 请求分发到不同 Provider。
 
@@ -16,6 +16,15 @@
 | `config.env` | 本地真实配置，包含 token，必须忽略提交 |
 
 ## 安装准备
+
+从仓库根目录可以先走 BurnKit 发布入口：
+
+```bash
+bin/burnkit install router
+bin/burnkit router 0
+```
+
+如果只使用本工具，也可以直接进入目录配置：
 
 ```bash
 cd tools/claude-provider-router
@@ -70,6 +79,17 @@ brew install jq
 也可以把 `statusLine` 放到 `~/.claude/settings.json`，让普通 `claude` 启动方式也使用同一条状态行。
 
 ## 使用
+
+从仓库根目录：
+
+```bash
+bin/burnkit router 0
+bin/burnkit router 7 --resume
+bin/burnkit router team 7 0
+bin/burnkit router router status
+```
+
+从本目录：
 
 ```bash
 # 显示帮助和可用配置
