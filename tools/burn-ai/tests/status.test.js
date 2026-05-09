@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildPaths } from "../dist/paths.js";
 import { formatStatusRows } from "../dist/format.js";
+import { loadDisplayStatusSnapshot } from "../dist/runtime.js";
 import {
   createStatusSnapshot,
   loadStatusSnapshot,
@@ -97,4 +98,14 @@ test("saveStatusSnapshot writes the stable status.json entry point", () => {
   const loaded = loadStatusSnapshot(paths);
   assert.equal(loaded.profile, "high");
   assert.equal(loaded.providers[0].usage.provider, "codex");
+});
+
+test("loadDisplayStatusSnapshot does not collect raw sources when status is missing", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "burn-ai-display-"));
+  const paths = buildPaths(home);
+
+  const snapshot = loadDisplayStatusSnapshot({ paths });
+
+  assert.equal(snapshot.providers.length, 0);
+  assert.equal(snapshot.issues[0].code, "STATUS_MISSING");
 });

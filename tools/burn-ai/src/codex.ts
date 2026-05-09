@@ -9,7 +9,12 @@ interface CodexCandidate {
   observedMs: number;
 }
 
-function walkJsonlFiles(dir: string, result: string[] = []): string[] {
+interface CodexJsonlFile {
+  file: string;
+  mtimeMs: number;
+}
+
+function walkJsonlFiles(dir: string, result: CodexJsonlFile[] = []): CodexJsonlFile[] {
   if (!isDir(dir)) {
     return result;
   }
@@ -22,11 +27,17 @@ function walkJsonlFiles(dir: string, result: string[] = []): string[] {
       }
       walkJsonlFiles(fullPath, result);
     } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-      result.push(fullPath);
+      result.push({ file: fullPath, mtimeMs: fs.statSync(fullPath).mtimeMs });
     }
   }
 
   return result;
+}
+
+function codexSessionRoots(codexHome: string) {
+  return ["sessions", "archived_sessions"]
+    .map((name) => path.join(codexHome, name))
+    .filter(isDir);
 }
 
 function parseObservedMs(raw: unknown, fallbackMs: number) {
@@ -101,22 +112,30 @@ export function collectCodexUsage(codexHome = path.join(process.env.HOME ?? "", 
     throw new Error(`Codex usage unavailable: ${codexHome} does not exist`);
   }
 
-  const candidates = walkJsonlFiles(codexHome)
-    .map((file) => {
-      try {
-        return latestCandidateFromFile(file);
-      } catch {
-        return null;
-      }
-    })
-    .filter((item): item is CodexCandidate => item !== null)
-    .sort((left, right) => right.observedMs - left.observedMs);
+  const files = codexSessionRoots(codexHome)
+    .flatMap((root) => walkJsonlFiles(root))
+    .sort((left, right) => right.mtimeMs - left.mtimeMs);
+  let latest: CodexCandidate | null = null;
 
-  if (candidates.length === 0) {
+  for (const { file, mtimeMs } of files) {
+    if (latest && mtimeMs < latest.observedMs) {
+      break;
+    }
+    try {
+      const candidate = latestCandidateFromFile(file);
+      if (candidate && (!latest || candidate.observedMs > latest.observedMs)) {
+        latest = candidate;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  if (!latest) {
     throw new Error(
-      "Codex usage unavailable: no local JSONL entry with payload.rate_limits was found. Run Codex CLI/App once and try again.",
+      "Codex usage unavailable: no local session JSONL entry with payload.rate_limits was found. Run Codex CLI/App once and try again.",
     );
   }
 
-  return candidates[0].usage;
+  return latest.usage;
 }

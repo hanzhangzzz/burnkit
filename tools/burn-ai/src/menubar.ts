@@ -154,6 +154,9 @@ function issueLabel(code: string) {
   if (code === "USAGE_STALE") {
     return "Usage data is stale";
   }
+  if (code === "STATUS_MISSING") {
+    return "Status not ready";
+  }
   return code.replaceAll("_", " ").toLowerCase();
 }
 
@@ -214,6 +217,9 @@ function pluginScript(paths: RuntimePaths) {
 // <swiftbar.hideDisablePlugin>true</swiftbar.hideDisablePlugin>
 // <swiftbar.refreshOnOpen>true</swiftbar.refreshOnOpen>
 const { spawnSync } = require("node:child_process");
+spawnSync(${JSON.stringify(process.execPath)}, [${JSON.stringify(appCliPath(paths))}, "daemon", "--once"], {
+  encoding: "utf8",
+});
 const result = spawnSync(${JSON.stringify(process.execPath)}, [${JSON.stringify(appCliPath(paths))}, "menubar", "render"], {
   encoding: "utf8",
 });

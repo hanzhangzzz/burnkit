@@ -51,3 +51,38 @@ test("collectCodexUsage reads latest payload.rate_limits from jsonl", () => {
   assert.equal(usage.planType, "pro");
   assert.equal(usage.windows[0].usedPercent, 12);
 });
+
+test("collectCodexUsage ignores non-session jsonl files", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "burn-ai-codex-"));
+  fs.mkdirSync(path.join(dir, "sessions"), { recursive: true });
+  fs.mkdirSync(path.join(dir, ".tmp", "plugins"), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, ".tmp", "plugins", "fixture.jsonl"),
+    `${JSON.stringify({
+      timestamp: "2026-05-09T00:00:00.000Z",
+      payload: {
+        rate_limits: {
+          primary: { used_percent: 99, window_minutes: 300, resets_at: 1778205600 },
+          secondary: { used_percent: 99, window_minutes: 10080, resets_at: 1778544000 },
+        },
+      },
+    })}\n`,
+    "utf8",
+  );
+  fs.writeFileSync(
+    path.join(dir, "sessions", "rollout.jsonl"),
+    `${JSON.stringify({
+      timestamp: "2026-05-08T00:00:00.000Z",
+      payload: {
+        rate_limits: {
+          primary: { used_percent: 12, window_minutes: 300, resets_at: 1778205600 },
+          secondary: { used_percent: 34, window_minutes: 10080, resets_at: 1778544000 },
+        },
+      },
+    })}\n`,
+    "utf8",
+  );
+
+  const usage = collectCodexUsage(dir);
+  assert.equal(usage.windows[0].usedPercent, 12);
+});
