@@ -4,3 +4,5 @@ __pycache__/
 .serena/
 *.tab-color-daemon.plist
 raw_think.md
+tools/burn-ai/node_modules/
+tools/burn-ai/dist/
