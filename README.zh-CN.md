@@ -1,138 +1,146 @@
-# 卷死你三件套
+# BurnKit
 
-> AI 没卡住。你卡住了。
+> 先榨干你，再逼你 harness。
 
 [English README](README.md)
 
-这是一个给高并发 AI 编程工作流用的小工具集，气质不太稳定，但目标很稳定：把人的瓶颈暴露出来，然后逼你处理它。
+BurnKit 是给并行跑 Claude Code 和 Codex 的开发者准备的三件套。它帮你把任务路由到正确 Provider，在 AI 等你时染色提醒空闲 tab，并盯住昂贵 plan 窗口有没有悄悄空转。
 
-Claude Code 跑完了。Codex 跑完了。另一个 tab 已经等你十分钟了。你没看到，因为你正在错误的终端里认真发呆。
+中文精神名：`卷死你三件套`。
 
-所以这个仓库干一件很朴素的事：让你的注意力债务变成可见光。
+不是我卷疯了，也不是想把你卷疯。
+
+BurnKit 的本质，是把 AI 编程里最尴尬的事实摊开：模型越来越快，但工作流仍然卡在人身上。你以为自己缺的是更强模型，结果真正拖慢吞吐的是 Provider 选择、空闲 session、上下文切换、plan 窗口浪费，以及那个永远在回答“要不要继续”的人类调度器。
+
+BurnKit 先把这些东西变成信号。等信号多到你接不住，你就会自然开始问：怎么让 AI 少问我？怎么让它自己排队、分工、验证、交付？
+
+没错，这就是 harness 的入口。
 
 ![六个 AI 编程 session 分布在多个终端 tab 中，并按空闲压力显示颜色](assets/readme/hero-ai-tabs.png)
 
-## 为什么要有这个东西
+## 你会得到什么
 
-AI 越来越快，但人的注意力没有升级。
+| 工具 | 命令 | 职责 | 为什么需要它 |
+|------|------|------|--------------|
+| Claude Provider Router | `bin/burnkit router 0` | 用编号 Provider 启动 Claude Code，并支持 Agent Team leader/teammate 分流 | 把正确任务放到正确模型、endpoint 和额度上 |
+| iTerm2 Tab Color | `bin/burnkit install tabs` | Claude Code / Codex 等你时，把非当前 iTerm2 tab 染色 | 把被遗忘的 prompt 变成可见压力 |
+| Burn AI | `bin/burnkit status --refresh` | 追踪本机 Claude Code / Codex plan usage 和燃烧节奏 | 别浪费昂贵窗口，也别每个周期无脑打满 |
 
-开一个 session，你还能盯。开五个 session，你需要调度。开十个 session，你需要一个会变色的羞耻仪表盘。
+![三件套总览：Provider 路由、tab 颜色压迫和 plan usage 节奏控制](assets/readme/toolkit-overview.png)
 
-这个项目就是那个仪表盘。
+## 让你的 Agent 自动安装
 
-- 用 `c` 快速切 Claude Code Provider，不用每次翻配置。
-- Agent Team 场景里，把 leader 和 teammate 流量分到不同 Provider。
-- Claude Code / Codex CLI 等你输入时，把 iTerm2 tab 染成绿、黄、红。
-- 盯住 Claude Code / Codex 的 plan usage，别让 5h 窗口空转，也别无脑烧穿 7d 额度。
+把下面这段话复制给你的 AI coding agent，让它帮你自动安装：
 
-## 真正的高度
+```text
+帮我在这个仓库里安装 BurnKit。
 
-这不是一个让你永远手动接球的工具。
+规则：
+- 先运行 `scripts/e2e-install-verify.sh --dry-run`。
+- 运行 `bin/burnkit doctor`。
+- 所有安装器先 dry-run，再考虑真实安装：
+  - `bin/burnkit install router --dry-run`
+  - `bin/burnkit install tabs --dry-run --skip-python-check`
+  - `bin/burnkit install burn --dry-run`
+- 不要覆盖 `tools/claude-provider-router/config.env`。如果它已经存在，必须 byte-for-byte 保留。
+- 真实安装前，先告诉我会修改哪些文件和系统状态，然后等待我明确确认。
+- 我确认后，再执行真实安装，并用 `scripts/e2e-install-verify.sh --real` 验证结果。
+```
 
-它先把你榨干：榨干你的空闲时间，榨干你的上下文切换，榨干你同时盯十几个 AI session 的自信。直到某一刻，你发现自己已经开不了更多窗口、切不了更多 tab、回不了更多“继续”。
+重点是：`config.env` 里是 Provider token。合格的 agent 必须在它已存在时原样保留。
 
-然后问题会自己冒出来：
+## 手动安装
+
+```bash
+git clone https://github.com/doingdd/iterm2-claude-tab-color.git burnkit
+cd burnkit
+
+bin/burnkit doctor
+bin/burnkit install router
+pip3 install iterm2
+bin/burnkit install tabs
+bin/burnkit install burn
+```
+
+然后编辑 Provider 配置：
+
+```bash
+$EDITOR tools/claude-provider-router/config.env
+```
+
+通过 BurnKit 启动 Claude Code：
+
+```bash
+bin/burnkit router 0
+bin/burnkit router team 7 0
+```
+
+查看 plan 燃烧状态：
+
+```bash
+bin/burnkit status --refresh
+```
+
+## 它制造的循环
+
+```text
+1. 开更多 AI session。
+2. 看空闲 tab 变绿、变黄、变红。
+3. 用 Burn AI 看 5h / 7d plan 窗口有没有被浪费。
+4. 撞上人类调度极限。
+5. 开始设计真正的 agent harness。
+```
+
+![从更多终端窗口，到人类瓶颈，再到自主 agent harness 的三阶段升级图](assets/readme/harness-evolution.png)
+
+这才是重点。BurnKit 不是让你永远手动接球的工具。它是一个压力装置：榨干你的空闲时间、上下文切换，以及“一个人能手动调度十个 agent session”的幻觉。
+
+到了极限之后，问题不再是鸡血口号，而是架构问题：
 
 ```text
 为什么它总要问我？
 为什么它不能自己判断下一步？
-为什么我还在当人肉调度器？
+为什么我还在当人肉 event loop？
 为什么这些 session 不能排队、分工、验证、交付？
 ```
 
 没错。你开始 harness 了。
 
-先用颜色把人逼到极限，再用系统把人从循环里拿出来。这才是三件套真正想干的事：不是让你更勤奋地喂 AI，而是逼你承认，下一层生产力不在更多窗口里，在更自主的 agent harness 里。
+## 命令地图
 
-![从更多终端窗口，到人类瓶颈，再到自主 agent harness 的三阶段升级图](assets/readme/harness-evolution.png)
+| 命令 | 用途 |
+|------|------|
+| `bin/burnkit doctor` | 检查本机依赖和三个工具的就绪状态 |
+| `bin/burnkit install router` | 缺少 `config.env` 时，从模板创建 Provider 配置 |
+| `bin/burnkit install tabs` | 执行 iTerm2 Tab Color 安装器 |
+| `bin/burnkit install burn` | 安装/build Burn AI，然后执行 `burn-ai install` |
+| `bin/burnkit install all` | 依次执行 router setup、tab color install、Burn AI install |
+| `bin/burnkit router 0` | 用 Provider 配置 `0` 启动 Claude Code |
+| `bin/burnkit router team 7 0` | 启动 Agent Team 路由：leader 用 `7`，teammate 用 `0` |
+| `bin/burnkit burn doctor` | 转发到 Burn AI CLI |
+| `bin/burnkit status --refresh` | 刷新并打印 plan usage 状态 |
 
-## 三件套
+`bin/burnkit` 是发布入口，不是偷偷摸摸的全局安装器。每个工具仍然保留自己的运行文件、安全检查和卸载路径。
 
-| 工具 | 状态 | 它干什么 | 你为什么会想用 |
-|------|------|----------|----------------|
-| Claude Provider Router | 可用 | 通过 `c` 启动 Claude Code，按编号切 Provider，Team 模式按角色分流 | 该烧哪个额度烧哪个额度，不再手动搬 endpoint |
-| iTerm2 Tab Color | 可用 | Claude Code 或 Codex 等你时，把非当前 iTerm2 tab 染色 | 你的终端从遗忘现场变成调度台 |
-| Burn AI | 初版 | 追踪本机 Claude Code / Codex coding plan usage，判断燃烧节奏过慢、过快或接近限额 | 别浪费昂贵窗口，也别每个 5h 都无脑打满 |
+## Tab 压力协议
 
-![三件套总览：Provider 路由、tab 颜色压迫和 plan usage 节奏控制](assets/readme/toolkit-overview.png)
-
-## 注意力拷打协议
-
-| 颜色 | 含义 | 精神攻击 |
+| 颜色 | 含义 | 操作信号 |
 |------|------|----------|
-| 绿色 | AI 刚跑完，正在等你 | "还新鲜，快去收结果。" |
-| 黄色 | 已经等了一会儿 | "你的并行能力开始漏水了。" |
-| 红色 | 等太久了 | "机器准备好了，瓶颈还在打字。" |
-| 白色 | 当前 tab、处理中，或干净状态 | "这里暂时没人在催你。" |
+| 绿色 | AI 刚跑完，正在等你 | 现在收结果 |
+| 黄色 | 已经等了一会儿 | 你的并行能力开始漏水 |
+| 红色 | 等太久了 | 机器准备好了，人迟到了 |
+| 白色 | 当前 tab、处理中，或干净状态 | 这里暂时不需要注意 |
 
-只有非当前 tab 会变色。你正在看的 tab 保持白色，因为提示应该指向你没看到的地方，而不是给你正在看的地方贴花。
+只有非当前 tab 会变色。你正在看的 tab 保持白色，因为提示应该指向你没看到的地方。
 
 ![tab 颜色从白色到绿色、黄色、红色，再在用户响应后回到白色](assets/readme/tab-color-escalation.png)
-
-## 快速开始
-
-克隆仓库：
-
-```bash
-git clone https://github.com/doingdd/iterm2-claude-tab-color.git
-cd iterm2-claude-tab-color
-```
-
-使用 Claude Provider Router：
-
-```bash
-cd tools/claude-provider-router
-cp config.env.example config.env
-chmod 600 config.env
-./c 0
-```
-
-安装 iTerm2 Tab Color：
-
-```bash
-pip3 install iterm2
-bash tools/iterm2-tab-color/install.sh
-```
-
-安装 Burn AI：
-
-```bash
-cd tools/burn-ai
-npm install
-npx burn-ai install
-burn-ai doctor
-burn-ai status
-```
-
-Burn AI 会安装本地运行副本到 `~/.burn-ai/app`，在 `~/.local/bin` 创建 `burn-ai` 命令软链，安装 macOS launchd 采集器，并配置 SwiftBar 菜单栏插件。它不负责 Claude Code 或 Codex 的登录态。
-
-然后开几个 Claude Code 或 Codex CLI session，让它们干活，再停止幻想自己能记住每个 tab 到底跑到哪了。
-
-## 用起来是什么感觉
-
-之前：
-
-```text
-tab 1：大概跑完了？
-tab 2：可能还在跑？
-tab 3：我什么时候开的这个？
-tab 4：风扇怎么开始表演了？
-tab 5：完了
-```
-
-之后：
-
-```text
-绿色 -> 现在收结果
-黄色 -> 已经开始变质
-红色 -> 别装调度系统了，快切过去
-白色 -> 当前活跃或状态干净
-```
 
 ## 项目结构
 
 ```text
 .
+├── bin/
+│   └── burnkit
 ├── tools/
 │   ├── claude-provider-router/
 │   ├── iterm2-tab-color/
@@ -144,7 +152,7 @@ tab 5：完了
 └── README.zh-CN.md
 ```
 
-根目录不提供 `install.sh` / `uninstall.sh`。每个工具的安装和卸载入口都在自己的目录里。
+根目录不提供 `install.sh` / `uninstall.sh`。需要引导安装时用 `bin/burnkit`，需要精细控制时直接运行各工具自己的安装器。
 
 ## 工具文档
 
@@ -155,11 +163,29 @@ tab 5：完了
 
 ## 安全边界
 
-- 不提交 `tools/claude-provider-router/config.env`；仓库只维护 `config.env.example`。
-- Burn AI 不处理登录态、不托管凭据，只读取 Claude Code / Codex 已经在本机产生的 usage 数据。
-- tab 颜色行为、state 清理、进程检测、hook 语义都属于功能行为变更，不能混进目录整理里。
+- `tools/claude-provider-router/config.env` 包含 token，不能提交。
+- Burn AI 不处理登录态、不托管凭据、不主动请求内部 usage API；只读取 Claude Code / Codex 已经在本机产生的 usage 数据。
+- Burn AI 不覆盖用户已有 Claude Code status line。若已存在 status line，它只打印手动接入 ingest 的片段。
+- tab 颜色行为、state 清理、进程检测、hook 事件、daemon 调度都属于功能行为变更，不能混进文档或发布润色里。
 
 ## 开发验证
+
+修改发布入口后至少运行：
+
+```bash
+bash -n bin/burnkit
+bin/burnkit --help
+bin/burnkit doctor
+scripts/e2e-install-verify.sh --dry-run
+```
+
+在本机执行真实安装验证：
+
+```bash
+scripts/e2e-install-verify.sh --real
+```
+
+这个 e2e 验证脚本包含 sentinel 测试，会证明已有 `tools/claude-provider-router/config.env` 不会被覆盖。
 
 修改 iTerm2 Tab Color 后至少运行：
 

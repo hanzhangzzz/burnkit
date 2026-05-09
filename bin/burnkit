@@ -1,0 +1,242 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROUTER_DIR="$REPO_ROOT/tools/claude-provider-router"
+TAB_COLOR_DIR="$REPO_ROOT/tools/iterm2-tab-color"
+BURN_AI_DIR="$REPO_ROOT/tools/burn-ai"
+
+usage() {
+    cat <<'EOF'
+BurnKit - AI coding workflow pressure toolkit
+
+Usage:
+  bin/burnkit doctor
+  bin/burnkit install router
+  bin/burnkit install tabs [install.sh options...]
+  bin/burnkit install burn [burn-ai install options...]
+  bin/burnkit install all
+  bin/burnkit router [c args...]
+  bin/burnkit burn [burn-ai args...]
+  bin/burnkit status [burn-ai status options...]
+
+Examples:
+  bin/burnkit doctor
+  bin/burnkit install router
+  bin/burnkit install tabs --dry-run --skip-python-check
+  bin/burnkit install tabs
+  bin/burnkit install burn --dry-run
+  bin/burnkit router 0 --resume
+  bin/burnkit status --refresh
+EOF
+}
+
+section() {
+    printf '\n%s\n' "$1"
+    printf '%s\n' "----------------------------------------"
+}
+
+ok() {
+    printf 'OK  %s\n' "$1"
+}
+
+warn() {
+    printf 'WARN %s\n' "$1"
+}
+
+fail() {
+    printf 'FAIL %s\n' "$1"
+}
+
+die() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 1
+}
+
+require_file() {
+    [ -f "$1" ] || die "missing file: $1"
+}
+
+has_command() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+has_arg() {
+    local needle="$1"
+    shift || true
+    local arg
+    for arg in "$@"; do
+        [ "$arg" = "$needle" ] && return 0
+    done
+    return 1
+}
+
+install_router() {
+    local dry_run=0
+    if has_arg "--dry-run" "$@"; then
+        dry_run=1
+    fi
+
+    local example="$ROUTER_DIR/config.env.example"
+    local target="$ROUTER_DIR/config.env"
+    require_file "$ROUTER_DIR/c"
+    require_file "$example"
+
+    if [ -f "$target" ]; then
+        ok "router config already exists: $target"
+        return 0
+    fi
+
+    if [ "$dry_run" -eq 1 ]; then
+        printf '[dry-run] would copy %s -> %s\n' "$example" "$target"
+        printf '[dry-run] would chmod 600 %s\n' "$target"
+        return 0
+    fi
+
+    cp "$example" "$target"
+    chmod 600 "$target"
+    ok "created router config: $target"
+    warn "edit $target before running: bin/burnkit router 0"
+}
+
+install_tabs() {
+    require_file "$TAB_COLOR_DIR/install.sh"
+    bash "$TAB_COLOR_DIR/install.sh" "$@"
+}
+
+ensure_burn_ai_ready() {
+    [ -d "$BURN_AI_DIR" ] || die "missing Burn AI directory: $BURN_AI_DIR"
+    require_file "$BURN_AI_DIR/package.json"
+
+    has_command node || die "node is required for Burn AI"
+    has_command npm || die "npm is required for Burn AI"
+
+    if [ ! -d "$BURN_AI_DIR/node_modules" ]; then
+        section "Installing Burn AI npm dependencies"
+        (cd "$BURN_AI_DIR" && npm install)
+    fi
+
+    if [ ! -x "$BURN_AI_DIR/dist/cli.js" ]; then
+        section "Building Burn AI"
+        (cd "$BURN_AI_DIR" && npm run build)
+    fi
+}
+
+run_burn_ai() {
+    ensure_burn_ai_ready
+    (cd "$BURN_AI_DIR" && npx --no-install burn-ai "$@")
+}
+
+install_burn() {
+    if has_arg "--dry-run" "$@" && [ ! -x "$BURN_AI_DIR/dist/cli.js" ]; then
+        section "Burn AI dry run"
+        printf '[dry-run] would run npm install in %s when dependencies are missing\n' "$BURN_AI_DIR"
+        printf '[dry-run] would run npm run build in %s when dist/cli.js is missing\n' "$BURN_AI_DIR"
+        printf '[dry-run] would run npx --no-install burn-ai install %s\n' "$*"
+        return 0
+    fi
+    run_burn_ai install "$@"
+}
+
+install_all() {
+    install_router "$@"
+    install_tabs "$@"
+    install_burn "$@"
+}
+
+run_router() {
+    require_file "$ROUTER_DIR/c"
+    "$ROUTER_DIR/c" "$@"
+}
+
+doctor() {
+    section "BurnKit repository"
+    ok "repo root: $REPO_ROOT"
+
+    section "Claude Provider Router"
+    if [ -x "$ROUTER_DIR/c" ]; then
+        ok "launcher exists: $ROUTER_DIR/c"
+    else
+        fail "launcher missing or not executable: $ROUTER_DIR/c"
+    fi
+    if [ -f "$ROUTER_DIR/config.env" ]; then
+        ok "config exists: $ROUTER_DIR/config.env"
+    else
+        warn "config missing; run: bin/burnkit install router"
+    fi
+    if has_command uvicorn; then
+        ok "uvicorn found for team routing"
+    else
+        warn "uvicorn missing; team mode needs: python3 -m pip install fastapi uvicorn httpx"
+    fi
+
+    section "iTerm2 Tab Color"
+    if [ -x "$TAB_COLOR_DIR/install.sh" ]; then
+        ok "installer exists: $TAB_COLOR_DIR/install.sh"
+    else
+        fail "installer missing or not executable: $TAB_COLOR_DIR/install.sh"
+    fi
+    if has_command python3 && python3 -c "import iterm2" >/dev/null 2>&1; then
+        ok "python3 can import iterm2"
+    else
+        warn "python3 iterm2 package missing; run: pip3 install iterm2"
+    fi
+
+    section "Burn AI"
+    if has_command node; then
+        ok "node: $(node --version)"
+    else
+        fail "node missing"
+    fi
+    if has_command npm; then
+        ok "npm: $(npm --version)"
+    else
+        fail "npm missing"
+    fi
+    if [ -x "$BURN_AI_DIR/dist/cli.js" ]; then
+        ok "burn-ai is built: $BURN_AI_DIR/dist/cli.js"
+        (cd "$BURN_AI_DIR" && npx --no-install burn-ai doctor --dry-run)
+    else
+        warn "burn-ai is not built; run: bin/burnkit install burn --dry-run"
+    fi
+}
+
+main() {
+    local command="${1:-}"
+    shift || true
+
+    case "$command" in
+        ""|-h|--help|help)
+            usage
+            ;;
+        doctor)
+            doctor
+            ;;
+        install)
+            local target="${1:-}"
+            shift || true
+            case "$target" in
+                router) install_router "$@" ;;
+                tabs|tab-color|iterm2) install_tabs "$@" ;;
+                burn|burn-ai) install_burn "$@" ;;
+                all) install_all "$@" ;;
+                *) die "unknown install target: ${target:-<empty>}" ;;
+            esac
+            ;;
+        router|c)
+            run_router "$@"
+            ;;
+        burn|burn-ai)
+            run_burn_ai "$@"
+            ;;
+        status)
+            run_burn_ai status "$@"
+            ;;
+        *)
+            die "unknown command: $command"
+            ;;
+    esac
+}
+
+main "$@"

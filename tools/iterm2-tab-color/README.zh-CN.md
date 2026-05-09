@@ -1,6 +1,6 @@
 # iTerm2 AI CLI Tab Color
 
-> 在 iTerm2 中用 tab 颜色监控 Claude Code 和 Codex CLI 的空闲状态。
+> BurnKit 的 tab 压力层：在 iTerm2 中用 tab 颜色监控 Claude Code 和 Codex CLI 的空闲状态。
 
 [English README](README.md)
 
@@ -46,6 +46,15 @@
 - Claude Code CLI 和/或 Codex CLI
 
 ### 安装
+
+从 BurnKit 仓库根目录：
+
+```bash
+pip3 install iterm2
+bin/burnkit install tabs
+```
+
+直接安装本工具：
 
 ```bash
 pip3 install iterm2

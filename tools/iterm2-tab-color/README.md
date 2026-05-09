@@ -1,6 +1,6 @@
 # iTerm2 AI CLI Tab Color
 
-> Visual idle monitoring for Claude Code and Codex CLI sessions in iTerm2.
+> BurnKit's tab-pressure layer: visual idle monitoring for Claude Code and Codex CLI sessions in iTerm2.
 
 [中文说明](README.zh-CN.md)
 
@@ -46,6 +46,15 @@ Important rules:
 - Claude Code CLI and/or Codex CLI
 
 ### Install
+
+From the BurnKit repo root:
+
+```bash
+pip3 install iterm2
+bin/burnkit install tabs
+```
+
+Direct tool install:
 
 ```bash
 pip3 install iterm2
