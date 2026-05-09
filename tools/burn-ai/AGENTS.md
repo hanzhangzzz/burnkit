@@ -31,6 +31,17 @@ Burn AI 是第三件工具：读取本机 Claude Code / Codex 已产生的 codin
 - `burn-ai status` 默认读取 `~/.burn-ai/status.json`；只有 `--refresh`、`--fixtures` 或 daemon 才应触发本机 usage 采集。
 - Menu Bar v1 使用 SwiftBar 插件作为薄展示层：`burn-ai menubar render` 只读 `status.json`，`burn-ai menubar install` 只安装 wrapper 插件，不采集 provider 数据。`burn-ai uninstall` 只删除本工具管理的插件，不卸载 SwiftBar 本体。
 
+## 已知踩坑：展示层不能越权采集
+
+- 不要为了“实时”让 `burn-ai status`、`burn-ai menubar render`、SwiftBar 渲染函数或未来 GUI 直接读取 `~/.codex`、Claude status line cache 之外的原始源。
+- 正确分层是：producer 读取原始源并写 `~/.burn-ai/status.json`；display 只读 `~/.burn-ai/status.json`。
+- 允许触发采集的入口只有 `burn-ai daemon --once`、launchd daemon、`burn-ai status --refresh`、`burn-ai ingest claude-statusline` 这类 producer 命令。
+- SwiftBar 插件如果需要更实时，应该先执行 `burn-ai daemon --once` 更新 `status.json`，再执行 `burn-ai menubar render`；不要把采集逻辑塞进 `renderMenuBar()`。
+- `loadDisplayStatusSnapshot()` 在 `status.json` 不存在时不能 fallback 到采集原始源；应返回 `STATUS_MISSING`，提示用户运行 producer。
+- 如果发现 stale，先检查 producer 是否生成了新的 `status.json`，以及 collector 是否能从 session 数据源读到最新 `rate_limits`；不要用“让展示层自己采集”绕过问题。
+- Codex collector 属于 producer 侧，可以优化扫描范围和排序。它应只扫描 `~/.codex/sessions` 与 `~/.codex/archived_sessions`，不要递归整个 `~/.codex`，避免读到 `.tmp`、插件 fixture 或其他非 session JSONL。
+- 必须保留回归测试覆盖这个边界：缺少 `status.json` 时，display 入口不采集原始源；非 session JSONL 不会被 Codex collector 当作 usage 来源。
+
 ## 燃烧策略
 
 - `low` 是默认档，保守保护 7d 额度。
@@ -51,6 +62,9 @@ burn-ai install
 npx --no-install burn-ai doctor --dry-run
 npx --no-install burn-ai status --fixtures
 npx --no-install burn-ai menubar render
+burn-ai status --refresh --json
+burn-ai status --json
+burn-ai menubar render
 ```
 
 真实 install 是本工具代码变更的必跑项；`npx --no-install burn-ai install` 和 `burn-ai install` 两条路径都要覆盖。验证后不要提交 `node_modules/` 或 `dist/`。

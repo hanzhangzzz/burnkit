@@ -5,7 +5,7 @@ import { collectCodexUsage } from "./codex.js";
 import { readJsonFile } from "./fs-util.js";
 import { buildPaths } from "./paths.js";
 import { loadLatestUsage, loadSamples, saveUsage } from "./store.js";
-import { BurnAnalysis, BurnProfile, ProviderUsage, RuntimePaths, StatusIssue } from "./types.js";
+import { BurnAnalysis, BurnProfile, ProviderUsage, RuntimePaths, StatusIssue, StatusSnapshot } from "./types.js";
 import {
   createStatusSnapshot,
   loadStatusSnapshot,
@@ -125,7 +125,7 @@ export function collectStatusSnapshot(options: { fixtures?: boolean } = {}) {
 
 export function loadDisplayStatusSnapshot(
   options: { fixtures?: boolean; refresh?: boolean; paths?: RuntimePaths } = {},
-) {
+): StatusSnapshot {
   if (options.fixtures || options.refresh) {
     return collectStatusSnapshot({ fixtures: options.fixtures });
   }
@@ -135,5 +135,16 @@ export function loadDisplayStatusSnapshot(
     return refreshStatusSnapshotFreshness(snapshot);
   }
 
-  return collectStatusSnapshot();
+  return {
+    generatedAt: new Date().toISOString(),
+    profile: readProfile(),
+    providers: [],
+    issues: [
+      {
+        severity: "warning",
+        code: "STATUS_MISSING",
+        message: `No Burn AI status snapshot found at ${options.paths?.statusFile ?? buildPaths().statusFile}. Run burn-ai daemon --once or burn-ai status --refresh.`,
+      },
+    ],
+  };
 }
