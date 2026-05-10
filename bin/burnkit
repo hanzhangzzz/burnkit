@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROUTER_DIR="$REPO_ROOT/tools/claude-provider-router"
 TAB_COLOR_DIR="$REPO_ROOT/tools/iterm2-tab-color"
@@ -110,17 +116,20 @@ ensure_burn_ai_ready() {
     require_file "$BURN_AI_DIR/package.json"
 
     has_command node || die "node is required for Burn AI"
-    has_command npm || die "npm is required for Burn AI"
+
+    if [ -x "$BURN_AI_DIR/dist/cli.js" ]; then
+        return 0
+    fi
+
+    has_command npm || die "npm is required to build Burn AI"
 
     if [ ! -d "$BURN_AI_DIR/node_modules" ]; then
         section "Installing Burn AI npm dependencies"
         (cd "$BURN_AI_DIR" && npm install)
     fi
 
-    if [ ! -x "$BURN_AI_DIR/dist/cli.js" ]; then
-        section "Building Burn AI"
-        (cd "$BURN_AI_DIR" && npm run build)
-    fi
+    section "Building Burn AI"
+    (cd "$BURN_AI_DIR" && npm run build)
 }
 
 run_burn_ai() {
