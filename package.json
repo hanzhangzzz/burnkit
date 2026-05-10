@@ -1,0 +1,24 @@
+{
+  "name": "burnkit",
+  "version": "0.1.0",
+  "description": "AI coding workflow pressure toolkit — Claude Provider Router, iTerm2 Tab Color, Burn AI",
+  "license": "MIT",
+  "bin": {
+    "burnkit": "./bin/burnkit"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "tools/burn-ai/dist/",
+    "tools/burn-ai/assets/",
+    "tools/burn-ai/package.json",
+    "tools/iterm2-tab-color/",
+    "tools/claude-provider-router/"
+  ],
+  "scripts": {
+    "prepack": "cd tools/burn-ai && npm ci && npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
