@@ -51,11 +51,7 @@ if [[ -z "${ITERM_SESSION_ID:-}" ]]; then
   exit 1
 fi
 
-# 检查 daemon 是否在跑
-if ! launchctl list 2>/dev/null | grep -q tab-color-daemon; then
-  warn "daemon 未运行，请先启动: launchctl kickstart -k gui/$(id -u)/com.duying.tab-color-daemon"
-  exit 1
-fi
+# daemon 检查跳过 — 录制时应停止 daemon 避免颜色冲突
 
 # ── 备份现有 state 文件 ──────────────────────
 mkdir -p "$BACKUP_DIR"
@@ -138,24 +134,11 @@ create_state() {
 }
 EOF
 
-  # 同时写一个 ANSI escape 即时设色（不需要等 daemon）
-  # 直接写到当前 tty
-  local tty_dev
-  tty_dev=$(find_claude_tty 2>/dev/null || tty 2>/dev/null || echo "")
-  if [[ -n "$tty_dev" && -w "$tty_dev" ]]; then
-    case "$color" in
-      green)  printf '\033]6;1;bg;red;brightness;30\033\\' > "$tty_dev"
-              printf '\033]6;1;bg;green;brightness;180\033\\' > "$tty_dev"
-              printf '\033]6;1;bg;blue;brightness;30\033\\' > "$tty_dev" ;;
-      yellow) printf '\033]6;1;bg;red;brightness;220\033\\' > "$tty_dev"
-              printf '\033]6;1;bg;green;brightness;160\033\\' > "$tty_dev"
-              printf '\033]6;1;bg;blue;brightness;0\033\\' > "$tty_dev" ;;
-      red)    printf '\033]6;1;bg;red;brightness;200\033\\' > "$tty_dev"
-              printf '\033]6;1;bg;green;brightness;40\033\\' > "$tty_dev"
-              printf '\033]6;1;bg;blue;brightness;40\033\\' > "$tty_dev" ;;
-    esac
-    info "ANSI escape 即时设色完成"
-  fi
+  case "$color" in
+    green)  printf '\033]6;1;bg;red;brightness;30\a\033]6;1;bg;green;brightness;180\a\033]6;1;bg;blue;brightness;30\a' ;;
+    yellow) printf '\033]6;1;bg;red;brightness;220\a\033]6;1;bg;green;brightness;160\a\033]6;1;bg;blue;brightness;0\a' ;;
+    red)    printf '\033]6;1;bg;red;brightness;200\a\033]6;1;bg;green;brightness;40\a\033]6;1;bg;blue;brightness;40\a' ;;
+  esac
 
   info "state 文件已写入: $STATE_DIR/demo-${color}.json"
   info "daemon 会在 500ms 内确认颜色。"

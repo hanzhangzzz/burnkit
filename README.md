@@ -141,6 +141,8 @@ Each tool still owns its own runtime files, safety checks, and uninstall path.
 
 Only inactive tabs get colored. The tab you are looking at stays white because notifications should point at what you are missing.
 
+![iTerm2 tab colors — green, yellow, red idle indicators](assets/demo-tab-color.gif)
+
 ## Repository Layout
 
 ```text
