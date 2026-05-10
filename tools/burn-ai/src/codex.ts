@@ -61,6 +61,9 @@ export function usageFromCodexRateLimits(
     return null;
   }
   const record = rateLimits as Record<string, unknown>;
+  if (typeof record.limit_name === "string") {
+    return null;
+  }
   const fiveHour = normalizeWindow("five_hour", record.primary, 300);
   const sevenDay = normalizeWindow("seven_day", record.secondary, 10080);
   if (!fiveHour || !sevenDay) {
