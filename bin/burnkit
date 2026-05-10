@@ -23,6 +23,9 @@ Usage:
   bin/burnkit install tabs [install.sh options...]
   bin/burnkit install burn [burn-ai install options...]
   bin/burnkit install all
+  bin/burnkit uninstall tabs [uninstall.sh options...]
+  bin/burnkit uninstall burn [--dry-run]
+  bin/burnkit uninstall all [--dry-run]
   bin/burnkit router [c args...]
   bin/burnkit burn [burn-ai args...]
   bin/burnkit status [burn-ai status options...]
@@ -148,10 +151,68 @@ install_burn() {
     run_burn_ai install "$@"
 }
 
+install_cli_shim() {
+    local shim_dir="$HOME/.local/bin"
+    local shim="$shim_dir/burnkit"
+    local target
+    target="$(cd "$SCRIPT_DIR" && pwd)/burnkit"
+
+    if [ -L "$shim" ] && [ "$(readlink "$shim")" = "$target" ]; then
+        ok "CLI shim already installed: $shim"
+        return 0
+    fi
+
+    if [ -e "$shim" ] && ! [ -L "$shim" ]; then
+        warn "CLI shim exists but is not a managed symlink: $shim"
+        return 0
+    fi
+
+    mkdir -p "$shim_dir"
+    ln -sf "$target" "$shim"
+    ok "installed CLI shim: $shim -> $target"
+
+    local in_path=0
+    case ":${PATH}:" in
+        *":$shim_dir:"*) in_path=1 ;;
+    esac
+    if [ "$in_path" -eq 0 ]; then
+        warn "add $shim_dir to PATH to use burnkit globally"
+    fi
+}
+
 install_all() {
+    install_cli_shim
     install_router "$@"
     install_tabs "$@"
     install_burn "$@"
+}
+
+uninstall_tabs() {
+    require_file "$TAB_COLOR_DIR/uninstall.sh"
+    bash "$TAB_COLOR_DIR/uninstall.sh" "$@"
+}
+
+uninstall_burn() {
+    ensure_burn_ai_ready
+    (cd "$BURN_AI_DIR" && npx --no-install burn-ai uninstall "$@")
+}
+
+uninstall_cli_shim() {
+    local shim="$HOME/.local/bin/burnkit"
+    if [ -L "$shim" ]; then
+        rm "$shim"
+        ok "removed CLI shim: $shim"
+    elif [ -e "$shim" ]; then
+        warn "CLI shim is not a managed symlink, skipping: $shim"
+    else
+        ok "CLI shim not installed: $shim"
+    fi
+}
+
+uninstall_all() {
+    uninstall_tabs "$@"
+    uninstall_burn "$@"
+    uninstall_cli_shim
 }
 
 run_router() {
@@ -231,6 +292,16 @@ main() {
                 burn|burn-ai) install_burn "$@" ;;
                 all) install_all "$@" ;;
                 *) die "unknown install target: ${target:-<empty>}" ;;
+            esac
+            ;;
+        uninstall)
+            local target="${1:-}"
+            shift || true
+            case "$target" in
+                tabs|tab-color|iterm2) uninstall_tabs "$@" ;;
+                burn|burn-ai) uninstall_burn "$@" ;;
+                all) uninstall_all "$@" ;;
+                *) die "unknown uninstall target: ${target:-<empty>}" ;;
             esac
             ;;
         router|c)
