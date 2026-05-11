@@ -59,3 +59,89 @@ test("analyzeUsage uses different low/high target ranges", () => {
   const high = analyzeUsage(baseUsage, samples, "high", new Date("2026-05-08T00:00:00.000Z"));
   assert.ok(low.target.maxPercent < high.target.maxPercent);
 });
+
+test("estimateConversionRate ignores cross-session anomalies before a 7d drop", () => {
+  const noisy = [
+    {
+      provider: "codex",
+      source: "test",
+      observedAt: "2026-05-07T18:00:00.000Z",
+      planType: null,
+      windows: [
+        { name: "five_hour", windowMinutes: 300, usedPercent: 5, resetsAt: "2026-05-07T22:00:00.000Z" },
+        { name: "seven_day", windowMinutes: 10080, usedPercent: 50, resetsAt: "2026-05-12T00:00:00.000Z" },
+      ],
+    },
+    // Cross-session anomaly: 7d drops sharply, then the next batch is the real
+    // sequence we want to learn from.
+    {
+      provider: "codex",
+      source: "test",
+      observedAt: "2026-05-07T19:00:00.000Z",
+      planType: null,
+      windows: [
+        { name: "five_hour", windowMinutes: 300, usedPercent: 0, resetsAt: "2026-05-08T00:00:00.000Z" },
+        { name: "seven_day", windowMinutes: 10080, usedPercent: 0, resetsAt: "2026-05-12T00:00:00.000Z" },
+      ],
+    },
+    {
+      provider: "codex",
+      source: "test",
+      observedAt: "2026-05-07T20:00:00.000Z",
+      planType: null,
+      windows: [
+        { name: "five_hour", windowMinutes: 300, usedPercent: 10, resetsAt: "2026-05-08T00:00:00.000Z" },
+        { name: "seven_day", windowMinutes: 10080, usedPercent: 56, resetsAt: "2026-05-12T00:00:00.000Z" },
+      ],
+    },
+    {
+      provider: "codex",
+      source: "test",
+      observedAt: "2026-05-07T21:00:00.000Z",
+      planType: null,
+      windows: [
+        { name: "five_hour", windowMinutes: 300, usedPercent: 20, resetsAt: "2026-05-08T00:00:00.000Z" },
+        { name: "seven_day", windowMinutes: 10080, usedPercent: 58, resetsAt: "2026-05-12T00:00:00.000Z" },
+      ],
+    },
+    {
+      provider: "codex",
+      source: "test",
+      observedAt: "2026-05-07T22:00:00.000Z",
+      planType: null,
+      windows: [
+        { name: "five_hour", windowMinutes: 300, usedPercent: 30, resetsAt: "2026-05-08T00:00:00.000Z" },
+        { name: "seven_day", windowMinutes: 10080, usedPercent: 60, resetsAt: "2026-05-12T00:00:00.000Z" },
+      ],
+    },
+  ];
+  // Honest rate within the stable tail is (60-56)/(30-10) = 0.2.
+  // The pre-drop pair would otherwise inflate the rate to ~3.0.
+  assert.equal(estimateConversionRate(noisy), 0.2);
+});
+
+test("estimateConversionRate returns null when accumulated 5h delta is too small", () => {
+  const sparse = [
+    {
+      provider: "codex",
+      source: "test",
+      observedAt: "2026-05-07T22:00:00.000Z",
+      planType: null,
+      windows: [
+        { name: "five_hour", windowMinutes: 300, usedPercent: 10, resetsAt: "2026-05-08T02:00:00.000Z" },
+        { name: "seven_day", windowMinutes: 10080, usedPercent: 33, resetsAt: "2026-05-12T00:00:00.000Z" },
+      ],
+    },
+    {
+      provider: "codex",
+      source: "test",
+      observedAt: "2026-05-07T23:00:00.000Z",
+      planType: null,
+      windows: [
+        { name: "five_hour", windowMinutes: 300, usedPercent: 12, resetsAt: "2026-05-08T02:00:00.000Z" },
+        { name: "seven_day", windowMinutes: 10080, usedPercent: 33, resetsAt: "2026-05-12T00:00:00.000Z" },
+      ],
+    },
+  ];
+  assert.equal(estimateConversionRate(sparse), null);
+});
