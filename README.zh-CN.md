@@ -38,7 +38,7 @@ BurnKit 先把这些东西变成信号。等信号多到你接不住，你就会
 规则：
 - 先运行 `scripts/e2e-install-verify.sh --dry-run`。
 - 运行 `bin/burnkit doctor`。
-- 所有安装器先 dry-run，再考虑真实安装：
+- 所有 BurnKit 安装目标先 dry-run，再考虑真实安装：
   - `bin/burnkit install router --dry-run`
   - `bin/burnkit install tabs --dry-run --skip-python-check`
   - `bin/burnkit install burn --dry-run`
@@ -111,8 +111,8 @@ bin/burnkit status --refresh
 | 命令 | 用途 |
 |------|------|
 | `bin/burnkit doctor` | 检查本机依赖和三个工具的就绪状态 |
-| `bin/burnkit install router` | 缺少 `config.env` 时，从模板创建 Provider 配置 |
-| `bin/burnkit install tabs` | 执行 iTerm2 Tab Color 安装器 |
+| `bin/burnkit install router` | 执行 router 内部安装器；仅在缺少 `config.env` 时从模板创建 Provider 配置 |
+| `bin/burnkit install tabs` | 通过 BurnKit 统一入口安装 iTerm2 Tab Color |
 | `bin/burnkit install burn` | 安装/build Burn AI，然后执行 `burn-ai install` |
 | `bin/burnkit install all` | 依次执行 router setup、tab color install、Burn AI install |
 | `bin/burnkit router 0` | 用 Provider 配置 `0` 启动 Claude Code |
@@ -152,7 +152,7 @@ bin/burnkit status --refresh
 └── README.zh-CN.md
 ```
 
-根目录不提供 `install.sh` / `uninstall.sh`。需要引导安装时用 `bin/burnkit`，需要精细控制时直接运行各工具自己的安装器。
+根目录不提供 `install.sh` / `uninstall.sh`。对用户可见的安装、卸载统一走 `bin/burnkit install ...` / `bin/burnkit uninstall ...`；子工具里的 `install.sh` / `uninstall.sh` 只作为兼容 wrapper 或维护者排障入口。
 
 ## 工具文档
 
@@ -165,7 +165,7 @@ bin/burnkit status --refresh
 
 - `tools/claude-provider-router/config.env` 包含 token，不能提交。
 - Burn AI 不处理登录态、不托管凭据、不主动请求内部 usage API；只读取 Claude Code / Codex 已经在本机产生的 usage 数据。
-- Burn AI 不覆盖用户已有 Claude Code status line。若已存在 status line，它只打印手动接入 ingest 的片段。
+- Burn AI 不覆盖用户已有 Claude Code status line。若已存在 status line，它会先交互式确认再安装 wrapper；跳过时会打印手动接入步骤，并说明哪些 Claude 功能会保持不可用。
 - tab 颜色行为、state 清理、进程检测、hook 事件、daemon 调度都属于功能行为变更，不能混进文档或发布润色里。
 
 ## 开发验证
@@ -185,12 +185,12 @@ scripts/e2e-install-verify.sh --dry-run
 scripts/e2e-install-verify.sh --real
 ```
 
-这个 e2e 验证脚本包含 sentinel 测试，会证明已有 `tools/claude-provider-router/config.env` 不会被覆盖。
+这个 e2e 验证脚本覆盖 router 两条路径：裸环境缺少 `config.env` 时会从模板创建并设为 `600`；已有 `tools/claude-provider-router/config.env` 时会 byte-for-byte 保留内容和权限。
 
 修改 iTerm2 Tab Color 后至少运行：
 
 ```bash
-bash -n tools/iterm2-tab-color/install.sh tools/iterm2-tab-color/uninstall.sh tools/iterm2-tab-color/tab_color_hook.sh
+bash -n tools/iterm2-tab-color/install-core.sh tools/iterm2-tab-color/uninstall-core.sh tools/iterm2-tab-color/install.sh tools/iterm2-tab-color/uninstall.sh tools/iterm2-tab-color/tab_color_hook.sh
 python3 -m py_compile tools/iterm2-tab-color/tab_color_daemon.py tools/iterm2-tab-color/reset_tab.py tools/iterm2-tab-color/test_daemon.py
 python3 -m unittest tools/iterm2-tab-color/test_daemon.py
 ```

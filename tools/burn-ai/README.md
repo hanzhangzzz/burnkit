@@ -45,13 +45,15 @@ burn-ai status
 - From `npx burn-ai install` or `npx --no-install burn-ai install`, it copies the current package into `~/.burn-ai/app` through a temporary directory, then restarts launchd.
 - From the installed shim `burn-ai install`, it detects that it is already running from `~/.burn-ai/app`, skips runtime self-copy, and still refreshes the CLI shim, SwiftBar plugin, and launchd agent.
 - The launchd job runs `~/.burn-ai/app/dist/cli.js daemon --once` every 300 seconds.
-- The installer does not overwrite user-managed Claude Code status line scripts.
+- The installer does not overwrite user-managed Claude Code status line scripts. If one already exists, it asks before installing a Burn AI wrapper around it.
 
 ## Claude Code Status Line
 
 If you do not have a Claude Code status line, `burn-ai install` can create a minimal one.
 
-If you already have one, Burn AI will not overwrite it. Add this near the top of your own script:
+If you already have one, Burn AI will ask before changing Claude settings. When you answer `y`, it writes a Burn AI wrapper at `~/.burn-ai/claude/statusline.sh`, saves the original command metadata, and updates `statusLine.command` so the wrapper runs first. The wrapper ingests Claude usage, then forwards the same input to your existing status line command. `burn-ai uninstall` restores the original command.
+
+If you answer `n` or run in a non-interactive shell, Burn AI skips the status line update and prints manual setup instructions. Add this near the top of your own script:
 
 ```bash
 input="$(cat)"
@@ -59,6 +61,8 @@ printf "%s" "$input" | node "$HOME/.burn-ai/app/dist/cli.js" ingest claude-statu
 
 # Make the rest of your script read from "$input" instead of stdin.
 ```
+
+Without this integration, Claude usage stays unavailable in Burn AI. Claude burn-rate analysis, Claude notifications, and Claude menu bar data will report `CLAUDE_INGEST_MISSING`; Codex usage is unaffected.
 
 ## Codex
 

@@ -8,9 +8,10 @@ Burn AI 是第三件工具：读取本机 Claude Code / Codex 已产生的 codin
 - 不主动请求 Claude/Codex 的内部 usage backend；v1 只使用本机已有 usage 结果。
 - Codex 数据源是 `~/.codex` session/rollout JSONL 中的 `payload.rate_limits`。
 - Claude 数据源是 `burn-ai ingest claude-statusline` 写入的 `~/.burn-ai/claude/latest.json`。
-- Claude Code 已有 `statusLine.command` 归用户所有；安装器不能覆盖、透明代理或自动改写用户已有 status line。
+- Claude Code 已有 `statusLine.command` 归用户所有；安装器不能覆盖用户脚本。
 - 如果用户没有 Claude status line，安装器可以创建 Burn AI 管理的最小 status line。
-- 如果用户已有 Claude status line，只检测是否已接入 Burn AI ingest，未接入时输出手动接入说明。
+- 如果用户已有 Claude status line 且未接入 Burn AI ingest，安装器必须交互式请求确认，并说明会写入 Burn AI wrapper、保存原命令元数据、更新 Claude settings。用户确认后才可接入；用户拒绝或非交互环境必须跳过修改，输出手动接入步骤，并说明 Claude burn-rate 分析、Claude 通知和 Claude 菜单栏数据会缺失，Codex 不受影响。
+- 通过 wrapper 接入已有 Claude status line 时，卸载必须恢复用户原始 `statusLine.command`，不能直接删除用户原有配置。
 - 通过 `npx burn-ai install` 安装时，Claude status line 不能依赖 PATH 中存在全局 `burn-ai`；脚本必须调用 `~/.burn-ai/app/dist/cli.js` 这份稳定副本。
 
 ## 运行与分发

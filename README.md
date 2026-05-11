@@ -40,7 +40,7 @@ Install BurnKit for me in this repo.
 Rules:
 - First run `scripts/e2e-install-verify.sh --dry-run`.
 - Run `bin/burnkit doctor`.
-- Dry-run each installer before any real install:
+- Dry-run each BurnKit install target before any real install:
   - `bin/burnkit install router --dry-run`
   - `bin/burnkit install tabs --dry-run --skip-python-check`
   - `bin/burnkit install burn --dry-run`
@@ -118,8 +118,8 @@ Exactly. You start harnessing.
 | Command | Purpose |
 |---------|---------|
 | `burnkit doctor` | Check local prerequisites and tool readiness |
-| `burnkit install router` | Create `tools/claude-provider-router/config.env` from the template when missing |
-| `burnkit install tabs` | Run the iTerm2 Tab Color installer |
+| `burnkit install router` | Run the router internal installer; create `config.env` from the template only when missing |
+| `burnkit install tabs` | Install iTerm2 Tab Color through the unified BurnKit entrypoint |
 | `burnkit install burn` | Install/build Burn AI, then run `burn-ai install` |
 | `burnkit install all` | Install CLI shim, router, tab color, and Burn AI in order |
 | `burnkit uninstall all` | Uninstall tab color, Burn AI, and CLI shim |
@@ -172,7 +172,7 @@ Only inactive tabs get colored. The tab you are looking at stays white because n
 
 - `tools/claude-provider-router/config.env` contains tokens and must not be committed.
 - Burn AI does not manage login state, credentials, or private usage APIs. It reads local usage data already produced by Claude Code and Codex.
-- Burn AI does not overwrite existing Claude Code status line scripts. If one exists, it prints an ingest snippet for manual integration.
+- Burn AI does not overwrite existing Claude Code status line scripts. If one exists, it asks before installing a wrapper; skipping prints manual integration steps and explains which Claude features stay unavailable.
 - Tab color behavior, state cleanup, process detection, hook events, and daemon scheduling are behavior changes. Do not bundle them with docs or release polish.
 
 ## Development Checks
@@ -192,12 +192,12 @@ For real install verification on a local machine:
 scripts/e2e-install-verify.sh --real
 ```
 
-The e2e verifier includes a sentinel test that proves an existing `tools/claude-provider-router/config.env` is preserved instead of overwritten.
+The e2e verifier checks both router install paths: missing `config.env` is created from the template with mode `600`, and an existing `tools/claude-provider-router/config.env` is preserved byte-for-byte with its original permissions.
 
 For iTerm2 Tab Color changes:
 
 ```bash
-bash -n tools/iterm2-tab-color/install.sh tools/iterm2-tab-color/uninstall.sh tools/iterm2-tab-color/tab_color_hook.sh
+bash -n tools/iterm2-tab-color/install-core.sh tools/iterm2-tab-color/uninstall-core.sh tools/iterm2-tab-color/install.sh tools/iterm2-tab-color/uninstall.sh tools/iterm2-tab-color/tab_color_hook.sh
 python3 -m py_compile tools/iterm2-tab-color/tab_color_daemon.py tools/iterm2-tab-color/reset_tab.py tools/iterm2-tab-color/test_daemon.py
 python3 -m unittest tools/iterm2-tab-color/test_daemon.py
 ```

@@ -12,16 +12,16 @@
 ## 运行入口
 
 ```bash
-bash tools/iterm2-tab-color/install.sh
-bash tools/iterm2-tab-color/uninstall.sh
+bin/burnkit install tabs
+bin/burnkit uninstall tabs
 ```
 
-根目录不维护安装/卸载转发脚本。
+根目录不维护 `install.sh` / `uninstall.sh`。对用户可见的安装、卸载统一走 `bin/burnkit`；本目录 `install.sh` / `uninstall.sh` 仅为兼容 wrapper，真实逻辑在 `install-core.sh` / `uninstall-core.sh`。
 
 ## 验证
 
 ```bash
-bash -n tools/iterm2-tab-color/install.sh tools/iterm2-tab-color/uninstall.sh tools/iterm2-tab-color/tab_color_hook.sh
+bash -n tools/iterm2-tab-color/install-core.sh tools/iterm2-tab-color/uninstall-core.sh tools/iterm2-tab-color/install.sh tools/iterm2-tab-color/uninstall.sh tools/iterm2-tab-color/tab_color_hook.sh
 python3 -m py_compile tools/iterm2-tab-color/tab_color_daemon.py tools/iterm2-tab-color/reset_tab.py tools/iterm2-tab-color/test_daemon.py
 python3 -m unittest tools/iterm2-tab-color/test_daemon.py
 ```

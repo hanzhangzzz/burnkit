@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { makeProviderUsage, normalizeWindow } from "./usage.js";
 import { ProviderUsage } from "./types.js";
 
@@ -53,4 +54,93 @@ export function getClaudeStatusLineCommand(settings: Record<string, unknown> | n
     return typeof command === "string" ? command : null;
   }
   return null;
+}
+
+function splitShellWords(command: string) {
+  const words: string[] = [];
+  let current = "";
+  let quote: "'" | "\"" | null = null;
+  let escaped = false;
+
+  for (const char of command) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if ((char === "'" || char === "\"") && !quote) {
+      quote = char;
+      continue;
+    }
+    if (char === quote) {
+      quote = null;
+      continue;
+    }
+    if (/\s/.test(char) && !quote) {
+      if (current) {
+        words.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (current) {
+    words.push(current);
+  }
+  return words;
+}
+
+function statusLineScriptCandidates(command: string) {
+  const words = splitShellWords(command);
+  const candidates = [command];
+  const interpreter = path.basename(words[0] ?? "");
+  if (["bash", "sh", "zsh", "node"].includes(interpreter)) {
+    for (const word of words.slice(1)) {
+      if (word === "-c") {
+        break;
+      }
+      if (word.startsWith("-")) {
+        continue;
+      }
+      candidates.push(word);
+      break;
+    }
+  }
+  return [...new Set(candidates)];
+}
+
+export function claudeStatusLineHasIngest(
+  command: string | null,
+  options: { appCliPath: string; managedScriptPath?: string },
+) {
+  if (!command) {
+    return false;
+  }
+  if (
+    command.includes("burn-ai ingest claude-statusline")
+    || command.includes(options.appCliPath)
+    || command === options.managedScriptPath
+  ) {
+    return true;
+  }
+  for (const candidate of statusLineScriptCandidates(command)) {
+    try {
+      if (!fs.statSync(candidate).isFile()) {
+        continue;
+      }
+      const script = fs.readFileSync(candidate, "utf8");
+      if (script.includes("burn-ai ingest claude-statusline") || script.includes(options.appCliPath)) {
+        return true;
+      }
+    } catch {
+      // Ignore command strings that are not readable script paths.
+    }
+  }
+  return false;
 }

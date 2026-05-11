@@ -11,7 +11,7 @@
 行为基准：
 
 - `tools/iterm2-tab-color/` 的功能行为必须等同于仓库 HEAD `0ba4914 feat: improve codex install and idle cleanup` 的根目录实现。
-- 允许修改：文件移动后的相对路径解析、安装脚本生成的 hook 软链目标、launchd plist 中的 daemon 脚本路径、README/测试命令中的路径。
+- 允许修改：文件移动后的相对路径解析、安装脚本生成的 hook 安装目标、launchd plist 中的 daemon 脚本路径、README/测试命令中的路径。
 - 禁止修改：hook 事件语义、state 文件生命周期、颜色状态机、活跃 tab 判断、同 tab 聚合、进程检测、daemon 调度逻辑。
 
 如果发现功能 bug，先暂停迁移，单独提出 bugfix 计划并 review。不要把目录迁移和行为修复混在一个 diff 里。
@@ -22,28 +22,28 @@
 
 ```bash
 pip3 install iterm2
-bash tools/iterm2-tab-color/install.sh
+bin/burnkit install tabs
 ```
 
 从仓库根目录卸载：
 
 ```bash
-bash tools/iterm2-tab-color/uninstall.sh
+bin/burnkit uninstall tabs
 ```
 
 卸载默认保留 `~/.claude/idle_state` 和 daemon log。如需一起清理：
 
 ```bash
-bash tools/iterm2-tab-color/uninstall.sh --purge-state
+bin/burnkit uninstall tabs --purge-state
 ```
 
 预演安装，不写文件、不启动服务：
 
 ```bash
-bash tools/iterm2-tab-color/install.sh --dry-run
+bin/burnkit install tabs --dry-run
 ```
 
-根目录不保留 `install.sh` / `uninstall.sh` 兼容入口。所有安装、卸载入口都在本目录。
+根目录不保留 `install.sh` / `uninstall.sh` 兼容入口。对用户可见的安装、卸载统一走 `bin/burnkit install tabs` / `bin/burnkit uninstall tabs`。本目录的 `install.sh` / `uninstall.sh` 只作为兼容 wrapper；真实逻辑维护在 `install-core.sh` / `uninstall-core.sh`，并由 `bin/burnkit` 直接调用。
 
 ## 运行时文件
 
@@ -51,8 +51,8 @@ bash tools/iterm2-tab-color/install.sh --dry-run
 
 | 路径 | 作用 |
 |------|------|
-| `~/.claude/hooks/tab_color_hook.sh` | 指向本目录 `tab_color_hook.sh` 的 Claude hook 软链 |
-| `~/.codex/hooks/tab_color_hook.sh` | 指向本目录 `tab_color_hook.sh` 的 Codex hook 软链 |
+| `~/.claude/hooks/tab_color_hook.sh` | Claude hook 脚本副本 |
+| `~/.codex/hooks/tab_color_hook.sh` | Codex hook 脚本副本 |
 | `~/.claude/settings.json` | Claude Code hook 注册位置 |
 | `~/.codex/hooks.json` | Codex hook 注册位置 |
 | `~/.claude/idle_state/*.json` | 每个 idle AI session 的 state 文件 |
@@ -210,8 +210,10 @@ iTerm2 tab color
 | `tab_color_hook.sh` | Claude/Codex hook 入口；处理 Stop、PreToolUse、UserPromptSubmit |
 | `tab_color_daemon.py` | launchd 托管 daemon；读取 state、聚合 tab、升级颜色、清理孤儿 |
 | `reset_tab.py` | hook 后台调用，通过 iTerm2 API 快速重置整个 tab |
-| `install.sh` | 安装 hook 软链、JSON hook 注册、launchd plist |
-| `uninstall.sh` | 停止 launchd、删除软链、移除 JSON hook 条目，可选删除 state/log |
+| `install-core.sh` | 内部安装实现：复制 hook、JSON hook 注册、launchd plist |
+| `uninstall-core.sh` | 内部卸载实现：停止 launchd、删除 hook 文件、移除 JSON hook 条目，可选删除 state/log |
+| `install.sh` | 兼容 wrapper，提示使用 `bin/burnkit install tabs` 后转发到 `install-core.sh` |
+| `uninstall.sh` | 兼容 wrapper，提示使用 `bin/burnkit uninstall tabs` 后转发到 `uninstall-core.sh` |
 | `test_daemon.py` | daemon 行为单元测试，使用 mock iTerm2 API |
 
 两个设色机制都需要保留：
@@ -243,7 +245,7 @@ daemon 入口必须使用 `iterm2.run_forever(main, retry=True)`，这样 iTerm2
 修改本目录后至少运行：
 
 ```bash
-bash -n tools/iterm2-tab-color/install.sh tools/iterm2-tab-color/uninstall.sh tools/iterm2-tab-color/tab_color_hook.sh
+bash -n tools/iterm2-tab-color/install-core.sh tools/iterm2-tab-color/uninstall-core.sh tools/iterm2-tab-color/install.sh tools/iterm2-tab-color/uninstall.sh tools/iterm2-tab-color/tab_color_hook.sh
 python3 -m py_compile tools/iterm2-tab-color/tab_color_daemon.py tools/iterm2-tab-color/reset_tab.py tools/iterm2-tab-color/test_daemon.py
 python3 -m unittest tools/iterm2-tab-color/test_daemon.py
 ```
@@ -251,7 +253,7 @@ python3 -m unittest tools/iterm2-tab-color/test_daemon.py
 如果当前工作目录已经是 `tools/iterm2-tab-color/`，等价命令是：
 
 ```bash
-bash -n install.sh uninstall.sh tab_color_hook.sh
+bash -n install-core.sh uninstall-core.sh install.sh uninstall.sh tab_color_hook.sh
 python3 -m py_compile tab_color_daemon.py reset_tab.py test_daemon.py
 python3 -m unittest test_daemon.py
 ```

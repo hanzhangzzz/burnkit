@@ -27,8 +27,8 @@ Important rules:
 
 ## Features
 
-- One-command install with `bash tools/iterm2-tab-color/install.sh` from the repo root
-- Production uninstall with `bash tools/iterm2-tab-color/uninstall.sh`
+- One-command install with `bin/burnkit install tabs` from the repo root
+- Production uninstall with `bin/burnkit uninstall tabs`
 - Claude Code and Codex CLI support through the same hook script
 - Split-pane support: one consistent color per iTerm2 tab
 - Active-tab awareness: colors work as notification badges
@@ -54,18 +54,17 @@ pip3 install iterm2
 bin/burnkit install tabs
 ```
 
-Direct tool install:
+Compatibility wrapper:
 
 ```bash
-pip3 install iterm2
-git clone https://github.com/doingdd/iterm2-claude-tab-color.git
-cd iterm2-claude-tab-color
 bash tools/iterm2-tab-color/install.sh
 ```
 
+The wrapper prints a warning and forwards to the same internal installer used by `bin/burnkit install tabs`.
+
 The installer will:
 
-- Create symlinks for Claude/Codex hooks
+- Copy the Claude/Codex hook script into user hook directories
 - Write a real launchd plist to `~/Library/LaunchAgents/com.duying.tab-color-daemon.plist`
 - Register Claude Code hooks: `Stop` and `PreToolUse`
 - Create/update `~/.codex/hooks.json` and register silent Codex hooks: `Stop`, `PreToolUse`, and `UserPromptSubmit`
@@ -76,19 +75,19 @@ The installer will:
 Preview without writing:
 
 ```bash
-bash tools/iterm2-tab-color/install.sh --dry-run
+bin/burnkit install tabs --dry-run
 ```
 
 Uninstall:
 
 ```bash
-bash tools/iterm2-tab-color/uninstall.sh
+bin/burnkit uninstall tabs
 ```
 
 The uninstaller keeps `~/.claude/idle_state` and daemon logs by default. To remove them:
 
 ```bash
-bash tools/iterm2-tab-color/uninstall.sh --purge-state
+bin/burnkit uninstall tabs --purge-state
 ```
 
 ### Verify
@@ -177,8 +176,8 @@ The daemon groups state by iTerm2 tab. A tab is white only when it is active or 
 
 ## Runtime Files
 
-- `~/.claude/hooks/tab_color_hook.sh` -> symlink to this tool directory
-- `~/.codex/hooks/tab_color_hook.sh` -> symlink to this tool directory
+- `~/.claude/hooks/tab_color_hook.sh` -> copied hook script
+- `~/.codex/hooks/tab_color_hook.sh` -> copied hook script
 - `~/.claude/idle_state/*.json` -> per-session idle state
 - `~/.claude/idle_state/daemon.log` -> daemon log
 - `~/Library/LaunchAgents/com.duying.tab-color-daemon.plist` -> generated launchd plist file
@@ -207,7 +206,7 @@ After uninstalling, remove `tab_color_hook.sh` entries from `~/.claude/settings.
 ## Development
 
 ```bash
-bash -n install.sh uninstall.sh tab_color_hook.sh
+bash -n install-core.sh uninstall-core.sh install.sh uninstall.sh tab_color_hook.sh
 python3 -m py_compile tab_color_daemon.py reset_tab.py test_daemon.py
 python3 -m unittest test_daemon.py
 ```

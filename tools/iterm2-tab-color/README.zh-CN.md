@@ -27,8 +27,8 @@
 
 ## 功能
 
-- 在仓库根目录执行 `bash tools/iterm2-tab-color/install.sh` 一键安装
-- 提供 `uninstall.sh`，可移除 hook、launchd 配置和 JSON hook 条目
+- 在仓库根目录执行 `bin/burnkit install tabs` 一键安装
+- 通过 `bin/burnkit uninstall tabs` 移除 hook、launchd 配置和 JSON hook 条目
 - Claude Code 和 Codex CLI 共用同一个 hook 脚本
 - 支持 split pane：同一个 iTerm2 tab 内颜色一致
 - 感知当前活跃 tab：颜色作为非当前 tab 的提醒标记
@@ -54,18 +54,17 @@ pip3 install iterm2
 bin/burnkit install tabs
 ```
 
-直接安装本工具：
+兼容 wrapper：
 
 ```bash
-pip3 install iterm2
-git clone https://github.com/doingdd/iterm2-claude-tab-color.git
-cd iterm2-claude-tab-color
 bash tools/iterm2-tab-color/install.sh
 ```
 
+wrapper 会打印提示，并转发到 `bin/burnkit install tabs` 使用的同一套内部安装逻辑。
+
 安装脚本会：
 
-- 创建 Claude/Codex hook 软链
+- 复制 Claude/Codex hook 脚本到用户 hook 目录
 - 写入真实 launchd plist：`~/Library/LaunchAgents/com.duying.tab-color-daemon.plist`
 - 注册 Claude Code hooks：`Stop` 和 `PreToolUse`
 - 创建/更新 `~/.codex/hooks.json`，并注册静默 Codex hooks：`Stop`、`PreToolUse`、`UserPromptSubmit`
@@ -76,19 +75,19 @@ bash tools/iterm2-tab-color/install.sh
 预演安装，不落盘：
 
 ```bash
-bash tools/iterm2-tab-color/install.sh --dry-run
+bin/burnkit install tabs --dry-run
 ```
 
 卸载：
 
 ```bash
-bash tools/iterm2-tab-color/uninstall.sh
+bin/burnkit uninstall tabs
 ```
 
 卸载脚本默认保留 `~/.claude/idle_state` 和 daemon log。如需一起删除：
 
 ```bash
-bash tools/iterm2-tab-color/uninstall.sh --purge-state
+bin/burnkit uninstall tabs --purge-state
 ```
 
 ### 验证
@@ -177,8 +176,8 @@ daemon 会按 iTerm2 tab 聚合 state。只有当 tab 当前活跃，或该 tab 
 
 ## 运行时文件
 
-- `~/.claude/hooks/tab_color_hook.sh` -> 指向本工具目录的软链
-- `~/.codex/hooks/tab_color_hook.sh` -> 指向本工具目录的软链
+- `~/.claude/hooks/tab_color_hook.sh` -> hook 脚本副本
+- `~/.codex/hooks/tab_color_hook.sh` -> hook 脚本副本
 - `~/.claude/idle_state/*.json` -> 每个 session 的 idle state
 - `~/.claude/idle_state/daemon.log` -> daemon 日志
 - `~/Library/LaunchAgents/com.duying.tab-color-daemon.plist` -> 生成的 launchd plist 真实文件
@@ -207,7 +206,7 @@ rm ~/Library/LaunchAgents/com.duying.tab-color-daemon.plist
 ## 开发
 
 ```bash
-bash -n install.sh uninstall.sh tab_color_hook.sh
+bash -n install-core.sh uninstall-core.sh install.sh uninstall.sh tab_color_hook.sh
 python3 -m py_compile tab_color_daemon.py reset_tab.py test_daemon.py
 python3 -m unittest test_daemon.py
 ```

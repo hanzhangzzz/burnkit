@@ -12,19 +12,22 @@
 | `router.py` | Team 模式本地路由代理，按 auth token 区分 leader / teammate |
 | `router-auth-helper.sh` | Claude Code `apiKeyHelper`，给单 Provider 和 Team 模式提供 token |
 | `ccline-with-model.sh` | Claude Code status line，显示模型、上下文、耗时、Git 分支和高级能力调用次数 |
+| `install-core.sh` | 内部安装器；由 `bin/burnkit install router` 调用 |
 | `config.env.example` | Provider 配置模板 |
 | `config.env` | 本地真实配置，包含 token，必须忽略提交 |
 
 ## 安装准备
 
-从仓库根目录可以先走 BurnKit 发布入口：
+从仓库根目录走 BurnKit 统一入口：
 
 ```bash
 bin/burnkit install router
 bin/burnkit router 0
 ```
 
-如果只使用本工具，也可以直接进入目录配置：
+`install-core.sh` 只在 `config.env` 缺失时从 `config.env.example` 创建并设置权限为 `600`。如果 `config.env` 已经存在，重复安装必须原样保留内容和权限。
+
+如果只使用本工具，也可以手动配置：
 
 ```bash
 cd tools/claude-provider-router

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { readConfig } from "./config.js";
 import { collectCodexUsage } from "./codex.js";
-import { getClaudeStatusLineCommand, readClaudeSettings } from "./claude.js";
+import { claudeStatusLineHasIngest, getClaudeStatusLineCommand, readClaudeSettings } from "./claude.js";
 import { isDir, isFile } from "./fs-util.js";
 import { buildPaths, providerLatestPath } from "./paths.js";
 import { notificationBackend } from "./notifier.js";
@@ -95,7 +95,10 @@ export function runDoctor(options: { dryRun?: boolean } = {}): DoctorCheck[] {
     const command = getClaudeStatusLineCommand(settings);
     checks.push({
       name: "Claude status line",
-      ok: command?.includes("burn-ai ingest claude-statusline") || command === paths.claudeStatusLineScript,
+      ok: claudeStatusLineHasIngest(command, {
+        appCliPath: path.join(paths.stateDir, "app", "dist", "cli.js"),
+        managedScriptPath: paths.claudeStatusLineScript,
+      }),
       message: command
         ? `configured: ${command}`
         : "not configured; burn-ai install can create a minimal collector if no status line exists",

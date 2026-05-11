@@ -2,9 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { getClaudeStatusLineCommand, readClaudeSettings } from "./claude.js";
+import { claudeStatusLineHasIngest, getClaudeStatusLineCommand, readClaudeSettings } from "./claude.js";
 import { ensureConfig } from "./config.js";
-import { ensureDir, isFile, writeJsonAtomic } from "./fs-util.js";
+import { ensureDir, isFile, readJsonFile, writeJsonAtomic } from "./fs-util.js";
 import { ensureSwiftBarInstalled, installMenuBar, openSwiftBar, uninstallMenuBar } from "./menubar.js";
 import { buildPaths } from "./paths.js";
 import { RuntimePaths } from "./types.js";
@@ -12,12 +12,52 @@ import { RuntimePaths } from "./types.js";
 export const LAUNCHD_LABEL = "com.duying.burn-ai";
 const MARKER = "burn-ai managed";
 
+interface StatusLineUpdateContext {
+  existingCommand: string;
+  wrapperScript: string;
+  originalCommandFile: string;
+  stableIngestCommand: string;
+}
+
+interface ClaudeStatusLineInstallOptions {
+  dryRun: boolean;
+  confirmStatusLineUpdate?: (context: StatusLineUpdateContext) => boolean;
+}
+
+interface OriginalStatusLineMetadata {
+  statusLine?: unknown;
+}
+
 function appInstallDir(paths: RuntimePaths) {
   return path.join(paths.stateDir, "app");
 }
 
 function appCliPath(paths: RuntimePaths) {
   return path.join(appInstallDir(paths), "dist", "cli.js");
+}
+
+function shellSingleQuote(value: string) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function stableIngestCommand(paths: RuntimePaths) {
+  return `${shellSingleQuote(process.execPath)} ${shellSingleQuote(appCliPath(paths))} ingest claude-statusline`;
+}
+
+function originalStatusLineFile(paths: RuntimePaths) {
+  return path.join(paths.claudeDir, "statusline-original.json");
+}
+
+function originalStatusLineFromMetadata(paths: RuntimePaths) {
+  const metadata = readJsonFile<OriginalStatusLineMetadata>(originalStatusLineFile(paths));
+  const statusLine = metadata?.statusLine;
+  if (statusLine && typeof statusLine === "object") {
+    const command = (statusLine as Record<string, unknown>).command;
+    if (typeof command === "string") {
+      return statusLine as Record<string, unknown>;
+    }
+  }
+  return null;
 }
 
 function currentPackageRoot() {
@@ -161,32 +201,118 @@ function restartLaunchAgent(plistFile: string) {
   execFileSync("launchctl", ["load", plistFile]);
 }
 
-function installClaudeStatusLine(paths: RuntimePaths, dryRun: boolean) {
+function wrapperStatusLineScript(existingCommand: string, stableIngestCommand: string) {
+  return [
+    "#!/usr/bin/env bash",
+    `# ${MARKER} Claude status line wrapper`,
+    `ORIGINAL_COMMAND=${shellSingleQuote(existingCommand)}`,
+    'input="$(cat)"',
+    `printf "%s" "$input" | ${stableIngestCommand} >/dev/null 2>&1 || true`,
+    'printf "%s" "$input" | /bin/sh -c "$ORIGINAL_COMMAND"',
+    "",
+  ].join("\n");
+}
+
+function manualClaudeStatusLineMessages(stableIngestCommand: string) {
+  return [
+    "Add this near the top of your existing status line script:",
+    '  input="$(cat)"',
+    `  printf "%s" "$input" | ${stableIngestCommand} >/dev/null`,
+    "Then make the rest of your script read from $input instead of stdin.",
+    "Without this, Claude usage will stay unavailable in Burn AI; Claude burn-rate analysis, Claude notifications, and Claude menu bar data will show CLAUDE_INGEST_MISSING. Codex usage is unaffected.",
+  ];
+}
+
+function defaultConfirmStatusLineUpdate(context: StatusLineUpdateContext) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return false;
+  }
+
+  const prompt = [
+    "Burn AI detected an existing Claude status line command.",
+    `Existing command: ${context.existingCommand}`,
+    "If you continue, Burn AI will:",
+    `  - write a wrapper script: ${context.wrapperScript}`,
+    `  - save the original command metadata: ${context.originalCommandFile}`,
+    "  - update Claude settings so the wrapper runs first",
+    "  - collect Claude usage, then forward the same input to your existing command",
+    "Continue? [y/N] ",
+  ].join("\n");
+
+  try {
+    const answer = execFileSync(
+      "/bin/sh",
+      [
+        "-c",
+        'printf "%s" "$1" > /dev/tty; IFS= read -r answer < /dev/tty; printf "%s" "$answer"',
+        "burn-ai-prompt",
+        prompt,
+      ],
+      { encoding: "utf8" },
+    ).trim().toLowerCase();
+    return answer === "y" || answer === "yes";
+  } catch {
+    return false;
+  }
+}
+
+export function installClaudeStatusLine(paths: RuntimePaths, options: ClaudeStatusLineInstallOptions) {
+  const dryRun = options.dryRun;
   const settings = readClaudeSettings(paths.claudeSettingsFile);
   const existing = getClaudeStatusLineCommand(settings);
-  const stableIngestCommand = `${process.execPath} ${appCliPath(paths)} ingest claude-statusline`;
+  const ingestCommand = stableIngestCommand(paths);
 
-  const existingScriptHasIngest =
-    existing && fs.existsSync(existing)
-      ? fs.readFileSync(existing, "utf8").includes("burn-ai ingest claude-statusline")
-        || fs.readFileSync(existing, "utf8").includes(appCliPath(paths))
-      : false;
-
-  if (existing?.includes("burn-ai ingest claude-statusline") || existing?.includes(appCliPath(paths)) || existingScriptHasIngest) {
+  if (claudeStatusLineHasIngest(existing, {
+    appCliPath: appCliPath(paths),
+    managedScriptPath: paths.claudeStatusLineScript,
+  })) {
     return ["Claude status line already includes burn-ai ingest."];
   }
 
   if (existing) {
-    return [
-      "Claude status line already exists; burn-ai will not modify it.",
-      "Add this near the top of your existing status line script:",
-      '  input="$(cat)"',
-      `  printf "%s" "$input" | ${stableIngestCommand} >/dev/null`,
-      "Then make the rest of your script read from $input instead of stdin.",
-    ];
+    const context = {
+      existingCommand: existing,
+      wrapperScript: paths.claudeStatusLineScript,
+      originalCommandFile: originalStatusLineFile(paths),
+      stableIngestCommand: ingestCommand,
+    };
+
+    if (dryRun) {
+      return [
+        "Claude status line already exists.",
+        `[dry-run] would ask whether to wrap the existing command: ${existing}`,
+        `[dry-run] would write wrapper script: ${paths.claudeStatusLineScript}`,
+        `[dry-run] would save original command metadata: ${context.originalCommandFile}`,
+        `[dry-run] would update statusLine.command in ${paths.claudeSettingsFile}`,
+        ...manualClaudeStatusLineMessages(ingestCommand),
+      ];
+    }
+
+    const confirmed = (options.confirmStatusLineUpdate ?? defaultConfirmStatusLineUpdate)(context);
+    if (!confirmed) {
+      return [
+        "Skipped Claude status line update.",
+        ...manualClaudeStatusLineMessages(ingestCommand),
+      ];
+    }
+
+    ensureDir(path.dirname(paths.claudeStatusLineScript));
+    writeJsonAtomic(context.originalCommandFile, {
+      statusLine: settings?.statusLine ?? { type: "command", command: existing },
+    });
+    fs.writeFileSync(paths.claudeStatusLineScript, wrapperStatusLineScript(existing, ingestCommand), { mode: 0o755 });
+    writeJsonAtomic(paths.claudeSettingsFile, {
+      ...(settings ?? {}),
+      statusLine: {
+        ...((settings?.statusLine && typeof settings.statusLine === "object") ? settings.statusLine : {}),
+        type: "command",
+        command: paths.claudeStatusLineScript,
+      },
+    });
+    return [`Updated Claude status line script: ${paths.claudeStatusLineScript}`];
   }
 
-  const lines = [`# ${MARKER}`, 'input="$(cat)"', `printf "%s" "$input" | ${stableIngestCommand} >/dev/null`, 'printf "Burn AI ready"'];
+  const lines = [`# ${MARKER}`, 'input="$(cat)"', `printf "%s" "$input" | ${ingestCommand} >/dev/null`, 'printf "Burn AI ready"'];
   const script = `${lines.join("\n")}\n`;
   const newSettings = {
     ...(settings ?? {}),
@@ -237,7 +363,7 @@ export function install(options: { dryRun?: boolean } = {}) {
   if (!dryRun) {
     messages.push(...openSwiftBar());
   }
-  messages.push(...installClaudeStatusLine(paths, dryRun));
+  messages.push(...installClaudeStatusLine(paths, { dryRun }));
 
   const args = installedCliCommand(paths);
   const xml = plistXml(args);
@@ -288,12 +414,23 @@ export function uninstall(options: { dryRun?: boolean } = {}) {
   const settings = readClaudeSettings(paths.claudeSettingsFile);
   const existing = getClaudeStatusLineCommand(settings);
   if (existing === paths.claudeStatusLineScript && settings) {
+    const originalStatusLine = originalStatusLineFromMetadata(paths);
     if (dryRun) {
-      messages.push(`[dry-run] would remove burn-ai statusLine from ${paths.claudeSettingsFile}`);
+      if (originalStatusLine) {
+        messages.push(`[dry-run] would restore user-managed statusLine.command in ${paths.claudeSettingsFile}`);
+      } else {
+        messages.push(`[dry-run] would remove burn-ai statusLine from ${paths.claudeSettingsFile}`);
+      }
     } else {
-      delete settings.statusLine;
+      if (originalStatusLine) {
+        settings.statusLine = originalStatusLine;
+      } else {
+        delete settings.statusLine;
+      }
       writeJsonAtomic(paths.claudeSettingsFile, settings);
-      messages.push("Removed burn-ai managed Claude status line.");
+      fs.rmSync(paths.claudeStatusLineScript, { force: true });
+      fs.rmSync(originalStatusLineFile(paths), { force: true });
+      messages.push(originalStatusLine ? "Restored user-managed Claude status line." : "Removed burn-ai managed Claude status line.");
     }
   } else if (existing) {
     messages.push("Claude status line is user-managed; leaving it unchanged.");

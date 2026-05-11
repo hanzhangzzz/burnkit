@@ -85,6 +85,14 @@ assert_symlink_target() {
     [ "$actual" = "$expected" ] || fail "wrong symlink target for $link: $actual != $expected"
 }
 
+assert_file_copy() {
+    local file="$1"
+    local expected="$2"
+    [ -f "$file" ] || fail "missing file: $file"
+    [ ! -L "$file" ] || fail "expected real file, got symlink: $file"
+    cmp -s "$expected" "$file" || fail "file content differs: $file != $expected"
+}
+
 assert_launchd_loaded() {
     local label="$1"
     launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || fail "launchd job is not loaded: $label"
@@ -120,8 +128,9 @@ verify_router_config_preservation() {
     mkdir -p "$temp_dir/bin" "$temp_dir/tools/claude-provider-router"
     cp "$REPO_ROOT/bin/burnkit" "$temp_dir/bin/burnkit"
     cp "$REPO_ROOT/tools/claude-provider-router/c" "$temp_dir/tools/claude-provider-router/c"
+    cp "$REPO_ROOT/tools/claude-provider-router/install-core.sh" "$temp_dir/tools/claude-provider-router/install-core.sh"
     cp "$REPO_ROOT/tools/claude-provider-router/config.env.example" "$temp_dir/tools/claude-provider-router/config.env.example"
-    chmod +x "$temp_dir/bin/burnkit" "$temp_dir/tools/claude-provider-router/c"
+    chmod +x "$temp_dir/bin/burnkit" "$temp_dir/tools/claude-provider-router/c" "$temp_dir/tools/claude-provider-router/install-core.sh"
 
     local config="$temp_dir/tools/claude-provider-router/config.env"
     cat > "$config" <<'EOF'
@@ -144,6 +153,28 @@ EOF
     grep -q "do-not-overwrite-this-token" "$config" || fail "sentinel token missing after router install"
     rm -rf "$temp_dir"
     pass "existing config.env is preserved byte-for-byte"
+}
+
+verify_router_config_creation() {
+    section "Router config.env creation"
+    local temp_dir
+    temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/burnkit-router-create.XXXXXX")"
+
+    mkdir -p "$temp_dir/bin" "$temp_dir/tools/claude-provider-router"
+    cp "$REPO_ROOT/bin/burnkit" "$temp_dir/bin/burnkit"
+    cp "$REPO_ROOT/tools/claude-provider-router/c" "$temp_dir/tools/claude-provider-router/c"
+    cp "$REPO_ROOT/tools/claude-provider-router/install-core.sh" "$temp_dir/tools/claude-provider-router/install-core.sh"
+    cp "$REPO_ROOT/tools/claude-provider-router/config.env.example" "$temp_dir/tools/claude-provider-router/config.env.example"
+    chmod +x "$temp_dir/bin/burnkit" "$temp_dir/tools/claude-provider-router/c" "$temp_dir/tools/claude-provider-router/install-core.sh"
+
+    local config="$temp_dir/tools/claude-provider-router/config.env"
+    run "$temp_dir/bin/burnkit" install router >/dev/null
+
+    assert_file "$config"
+    [ "$(stat -f '%Lp' "$config")" = "600" ] || fail "created config.env mode is not 600"
+    cmp -s "$temp_dir/tools/claude-provider-router/config.env.example" "$config" || fail "created config.env does not match template"
+    rm -rf "$temp_dir"
+    pass "missing config.env is created from template with mode 600"
 }
 
 verify_dry_run_installs() {
@@ -184,8 +215,8 @@ verify_real_tabs() {
     [ "$RUN_TABS" -eq 1 ] || return 0
     section "Real iTerm2 Tab Color install"
     run "$REPO_ROOT/bin/burnkit" install tabs
-    assert_symlink_target "$HOME/.claude/hooks/tab_color_hook.sh" "$REPO_ROOT/tools/iterm2-tab-color/tab_color_hook.sh"
-    assert_symlink_target "$HOME/.codex/hooks/tab_color_hook.sh" "$REPO_ROOT/tools/iterm2-tab-color/tab_color_hook.sh"
+    assert_file_copy "$HOME/.claude/hooks/tab_color_hook.sh" "$REPO_ROOT/tools/iterm2-tab-color/tab_color_hook.sh"
+    assert_file_copy "$HOME/.codex/hooks/tab_color_hook.sh" "$REPO_ROOT/tools/iterm2-tab-color/tab_color_hook.sh"
     assert_file "$HOME/Library/LaunchAgents/com.duying.tab-color-daemon.plist"
     [ ! -L "$HOME/Library/LaunchAgents/com.duying.tab-color-daemon.plist" ] || fail "tab color plist must be a real file, not a symlink"
     assert_launchd_loaded "com.duying.tab-color-daemon"
@@ -212,6 +243,7 @@ main() {
     section "BurnKit install verification mode: $MODE"
     verify_entrypoint
     verify_router_config_preservation
+    verify_router_config_creation
 
     if [ "$MODE" = "dry-run" ]; then
         verify_dry_run_installs
