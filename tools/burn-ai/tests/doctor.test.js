@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { runDoctor } from "../dist/doctor.js";
+import { doctorHasFailures, runDoctor } from "../dist/doctor.js";
 import { buildPaths } from "../dist/paths.js";
 import { writeJsonAtomic } from "../dist/fs-util.js";
 
@@ -63,4 +63,14 @@ test("runDoctor accepts integrated scripts invoked through an interpreter", () =
       process.env.HOME = originalHome;
     }
   }
+});
+
+test("doctorHasFailures reports any failed check", () => {
+  assert.equal(doctorHasFailures([
+    { name: "Runtime directory", ok: true, message: "ok" },
+    { name: "Menu bar", ok: false, message: "SwiftBar plugin missing" },
+  ]), true);
+  assert.equal(doctorHasFailures([
+    { name: "Runtime directory", ok: true, message: "ok" },
+  ]), false);
 });

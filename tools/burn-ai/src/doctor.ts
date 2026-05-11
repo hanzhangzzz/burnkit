@@ -153,3 +153,7 @@ export function formatDoctor(checks: DoctorCheck[]) {
     .map((check) => `${check.ok ? "OK" : "MISSING"}  ${check.name}: ${check.message}`)
     .join("\n");
 }
+
+export function doctorHasFailures(checks: DoctorCheck[]) {
+  return checks.some((check) => !check.ok);
+}

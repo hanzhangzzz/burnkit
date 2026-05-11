@@ -15,6 +15,7 @@ TAB_COLOR_DIR="$REPO_ROOT/tools/iterm2-tab-color"
 TAB_COLOR_INSTALLER="$TAB_COLOR_DIR/install-core.sh"
 TAB_COLOR_UNINSTALLER="$TAB_COLOR_DIR/uninstall-core.sh"
 BURN_AI_DIR="$REPO_ROOT/tools/burn-ai"
+BURNKIT_DOCTOR_FAILURES=0
 
 usage() {
     cat <<'EOF'
@@ -58,6 +59,7 @@ warn() {
 }
 
 fail() {
+    BURNKIT_DOCTOR_FAILURES=$((BURNKIT_DOCTOR_FAILURES + 1))
     printf 'FAIL %s\n' "$1"
 }
 
@@ -209,6 +211,8 @@ run_router() {
 }
 
 doctor() {
+    BURNKIT_DOCTOR_FAILURES=0
+
     section "BurnKit repository"
     ok "repo root: $REPO_ROOT"
 
@@ -259,10 +263,14 @@ doctor() {
     fi
     if [ -x "$BURN_AI_DIR/dist/cli.js" ]; then
         ok "burn-ai is built: $BURN_AI_DIR/dist/cli.js"
-        (cd "$BURN_AI_DIR" && npx --no-install burn-ai doctor --dry-run)
+        if ! (cd "$BURN_AI_DIR" && npx --no-install burn-ai doctor --dry-run); then
+            fail "burn-ai doctor reported missing required checks"
+        fi
     else
         warn "burn-ai is not built; run: bin/burnkit install burn --dry-run"
     fi
+
+    [ "$BURNKIT_DOCTOR_FAILURES" -eq 0 ]
 }
 
 main() {

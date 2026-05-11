@@ -5,7 +5,7 @@ import { saveUsage } from "./store.js";
 import { formatStatusRows, formatAnalysisDetail, formatIssues, formatProviderMeta } from "./format.js";
 import { loadDisplayStatusSnapshot } from "./runtime.js";
 import { runDaemonOnce } from "./daemon.js";
-import { formatDoctor, runDoctor } from "./doctor.js";
+import { doctorHasFailures, formatDoctor, runDoctor } from "./doctor.js";
 import { installMenuBar, renderMenuBar, uninstallMenuBar } from "./menubar.js";
 
 function hasFlag(args: string[], flag: string) {
@@ -51,7 +51,11 @@ async function main() {
     }
 
     if (command === "doctor") {
-      console.log(formatDoctor(runDoctor({ dryRun })));
+      const checks = runDoctor({ dryRun });
+      console.log(formatDoctor(checks));
+      if (doctorHasFailures(checks)) {
+        process.exitCode = 1;
+      }
       return;
     }
 

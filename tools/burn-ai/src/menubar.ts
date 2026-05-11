@@ -110,8 +110,14 @@ export function openSwiftBar() {
     return ["SwiftBar is not installed; skipping launch."];
   }
   try {
+    execFileSync("osascript", ["-e", 'quit app "SwiftBar"'], { stdio: "ignore" });
+  } catch {
+    // SwiftBar may not be running yet.
+  }
+  try {
     execFileSync("open", [appPath], { stdio: "ignore" });
-    return ["Opened SwiftBar."];
+    execFileSync("sleep", ["1"], { stdio: "ignore" });
+    return ["Opened SwiftBar.", ...clearSwiftBarStatusItemVisibility()];
   } catch (error) {
     return [`SwiftBar installed, but launch failed: ${error instanceof Error ? error.message : String(error)}`];
   }
@@ -248,12 +254,50 @@ function isManagedPlugin(paths: RuntimePaths) {
   }
 }
 
+export function swiftBarStatusItemVisibilityKeys(defaultsOutput: string) {
+  return defaultsOutput
+    .split("\n")
+    .map((line) => line.match(/^\s*"?((?:NSStatusItem Visible)[^"=]*)"?\s*=/)?.[1]?.trim())
+    .filter((key): key is string => Boolean(key));
+}
+
+function clearSwiftBarStatusItemVisibility(options: { dryRun?: boolean } = {}) {
+  let keys: string[];
+  try {
+    keys = swiftBarStatusItemVisibilityKeys(execFileSync("defaults", ["read", "com.ameba.SwiftBar"], {
+      encoding: "utf8",
+    }));
+  } catch {
+    return [];
+  }
+
+  if (keys.length === 0) {
+    return [];
+  }
+
+  if (options.dryRun) {
+    return [`[dry-run] would clear SwiftBar hidden status item cache: ${keys.join(", ")}`];
+  }
+
+  for (const key of keys) {
+    try {
+      execFileSync("defaults", ["delete", "com.ameba.SwiftBar", key], { stdio: "ignore" });
+    } catch {
+      // Ignore races with SwiftBar rewriting or deleting the same key.
+    }
+  }
+  return [`Cleared SwiftBar hidden status item cache: ${keys.join(", ")}`];
+}
+
 export function installMenuBar(options: { dryRun?: boolean } = {}) {
   const dryRun = options.dryRun ?? false;
   const paths = buildPaths();
   const plugin = swiftBarPluginPath(paths);
   if (dryRun) {
-    return [`[dry-run] would write SwiftBar plugin: ${plugin.file}`];
+    return [
+      `[dry-run] would write SwiftBar plugin: ${plugin.file}`,
+      ...clearSwiftBarStatusItemVisibility({ dryRun }),
+    ];
   }
   if (isFile(plugin.file) && !isManagedPlugin(paths)) {
     return [`SwiftBar plugin already exists and is not managed by burn-ai: ${plugin.file}`];
@@ -262,6 +306,7 @@ export function installMenuBar(options: { dryRun?: boolean } = {}) {
   fs.writeFileSync(plugin.file, pluginScript(paths), { mode: 0o755 });
   return [
     `Installed SwiftBar plugin: ${plugin.file}`,
+    ...clearSwiftBarStatusItemVisibility(),
     "Open SwiftBar and set its plugin folder to the Burn AI plugin directory if it is not already configured.",
     `Plugin directory: ${plugin.dir}`,
   ];

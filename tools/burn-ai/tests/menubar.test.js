@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { renderMenuBar } from "../dist/menubar.js";
+import { renderMenuBar, swiftBarStatusItemVisibilityKeys } from "../dist/menubar.js";
 
 const snapshot = {
   generatedAt: "2026-05-08T00:00:00.000Z",
@@ -59,4 +59,19 @@ test("renderMenuBar outputs SwiftBar-compatible status text", () => {
   assert.match(output, /7d usage\s+35%\s+reset/);
   assert.match(output, /WARNING  Claude not connected \| color=#B45309/);
   assert.match(output, /Refresh now \| refresh=true/);
+});
+
+test("swiftBarStatusItemVisibilityKeys finds hidden status item cache keys", () => {
+  const output = `{
+    MakePluginExecutable = 1;
+    "NSStatusItem Visible Item-0" = 0;
+    "NSStatusItem Visible Item-1" = 1;
+    "NSStatusItem Preferred Position com.example.one" = 12;
+    PluginDirectory = "/tmp/swiftbar";
+  }`;
+
+  assert.deepEqual(swiftBarStatusItemVisibilityKeys(output), [
+    "NSStatusItem Visible Item-0",
+    "NSStatusItem Visible Item-1",
+  ]);
 });
