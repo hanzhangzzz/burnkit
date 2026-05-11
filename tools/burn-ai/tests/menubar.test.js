@@ -54,10 +54,10 @@ test("renderMenuBar outputs SwiftBar-compatible status text", () => {
 
   assert.match(output, /^Burn LOW Codex 5h 0% \/ 7d 35%/);
   assert.match(output, /\n---\n/);
-  assert.match(output, /Codex  LOW \| color=#B45309/);
+  assert.match(output, /Codex  LOW \| color=#D70015/);
   assert.match(output, /5h usage\s+0%\s+reset/);
   assert.match(output, /7d usage\s+35%\s+reset/);
-  assert.match(output, /WARNING  Claude not connected \| color=#B45309/);
+  assert.match(output, /WARNING  Claude not connected \| color=#D70015/);
   assert.match(output, /Refresh now \| refresh=true/);
 });
 

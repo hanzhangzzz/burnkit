@@ -18,16 +18,20 @@ const STATE_LABEL: Record<BurnState, string> = {
   LIMIT_RISK: "LIMIT",
 };
 
+const ALERT_COLOR = "#D70015";
+const OK_COLOR = "#248A3D";
+const RAW_COLOR = "#6B7280";
+
 const STATE_COLOR: Record<BurnState, string> = {
-  RAW: "#6B7280",
-  UNDER_BURN: "#B45309",
-  ON_TRACK: "#15803D",
-  OVER_BURN: "#B45309",
-  LIMIT_RISK: "#B91C1C",
+  RAW: RAW_COLOR,
+  UNDER_BURN: ALERT_COLOR,
+  ON_TRACK: OK_COLOR,
+  OVER_BURN: ALERT_COLOR,
+  LIMIT_RISK: ALERT_COLOR,
 };
 
 const TEXT_COLOR = "#111827";
-const MUTED_COLOR = "#6B7280";
+const MUTED_COLOR = RAW_COLOR;
 const ROW_FONT = "Menlo";
 
 const STATE_WEIGHT: Record<BurnState, number> = {
@@ -196,7 +200,7 @@ export function renderMenuBar(snapshot: StatusSnapshot = loadDisplayStatusSnapsh
   }
 
   for (const issue of snapshot.issues) {
-    const color = issue.severity === "error" ? "#B91C1C" : "#B45309";
+    const color = ALERT_COLOR;
     lines.push(`${issue.severity.toUpperCase()}  ${issueLabel(issue.code)} | color=${color} size=13`);
     lines.push(muted(issue.message));
   }
