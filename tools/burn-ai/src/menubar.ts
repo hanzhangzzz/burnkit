@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { ensureDir, isFile } from "./fs-util.js";
-import { formatDurationUntil, formatProviderLabel, formatWindowLabel } from "./format.js";
+import { formatDurationUntil, formatProviderLabel } from "./format.js";
 import { buildPaths } from "./paths.js";
 import { loadDisplayStatusSnapshot } from "./runtime.js";
 import { BurnState, RuntimePaths, StatusSnapshot } from "./types.js";
@@ -11,11 +11,11 @@ const MARKER = "burn-ai managed SwiftBar plugin";
 const SWIFTBAR_APP_PATHS = ["/Applications/SwiftBar.app", path.join(process.env.HOME ?? "", "Applications", "SwiftBar.app")];
 
 const STATE_LABEL: Record<BurnState, string> = {
-  RAW: "WAIT",
-  UNDER_BURN: "LOW",
+  RAW: "Wait",
+  UNDER_BURN: "Slow",
   ON_TRACK: "OK",
-  OVER_BURN: "FAST",
-  LIMIT_RISK: "LIMIT",
+  OVER_BURN: "Fast",
+  LIMIT_RISK: "Limit",
 };
 
 const ALERT_COLOR = "#D70015";
@@ -33,14 +33,7 @@ const STATE_COLOR: Record<BurnState, string> = {
 const TEXT_COLOR = "#111827";
 const MUTED_COLOR = RAW_COLOR;
 const ROW_FONT = "Menlo";
-
-const STATE_WEIGHT: Record<BurnState, number> = {
-  LIMIT_RISK: 5,
-  UNDER_BURN: 4,
-  OVER_BURN: 3,
-  RAW: 2,
-  ON_TRACK: 1,
-};
+const TITLE_PROVIDER_ORDER = ["codex", "claude"];
 
 function appCliPath(paths: RuntimePaths) {
   return path.join(paths.stateDir, "app", "dist", "cli.js");
@@ -127,14 +120,26 @@ export function openSwiftBar() {
   }
 }
 
-function worstProvider(snapshot: StatusSnapshot) {
-  return [...snapshot.providers].sort((left, right) => {
-    return STATE_WEIGHT[right.analysis.state] - STATE_WEIGHT[left.analysis.state];
-  })[0];
-}
-
 function swiftBarEscape(value: string) {
   return value.replaceAll("|", "\\|");
+}
+
+function titleProviders(snapshot: StatusSnapshot) {
+  return [...snapshot.providers].sort((left, right) => {
+    const leftIndex = TITLE_PROVIDER_ORDER.indexOf(left.usage.provider);
+    const rightIndex = TITLE_PROVIDER_ORDER.indexOf(right.usage.provider);
+    const leftRank = leftIndex === -1 ? TITLE_PROVIDER_ORDER.length : leftIndex;
+    const rightRank = rightIndex === -1 ? TITLE_PROVIDER_ORDER.length : rightIndex;
+    return leftRank - rightRank;
+  });
+}
+
+function titleSegment(provider: StatusSnapshot["providers"][number]) {
+  const fiveHour = provider.analysis.fiveHour;
+  const sevenDay = provider.analysis.sevenDay;
+  const titleFive = fiveHour ? `${Math.round(fiveHour.usedPercent)}%` : "--";
+  const titleSeven = sevenDay ? `${Math.round(sevenDay.usedPercent)}%` : "--";
+  return `${formatProviderLabel(provider.usage.provider)}(${STATE_LABEL[provider.analysis.state]}) 5h ${titleFive} / 7d ${titleSeven}`;
 }
 
 function targetLabel(provider: StatusSnapshot["providers"][number]) {
@@ -171,16 +176,11 @@ function issueLabel(code: string) {
 }
 
 export function renderMenuBar(snapshot: StatusSnapshot = loadDisplayStatusSnapshot()) {
-  const provider = worstProvider(snapshot);
-  if (!provider) {
-    return ["Burn WAIT", "---", "No provider usage available"].join("\n");
+  const title = titleProviders(snapshot).map(titleSegment).join("  ");
+  if (!title) {
+    return ["No Usage", "---", "No provider usage available"].join("\n");
   }
 
-  const fiveHour = provider.analysis.fiveHour;
-  const sevenDay = provider.analysis.sevenDay;
-  const titleFive = fiveHour ? `${Math.round(fiveHour.usedPercent)}%` : "--";
-  const titleSeven = sevenDay ? `${Math.round(sevenDay.usedPercent)}%` : "--";
-  const title = `Burn ${STATE_LABEL[provider.analysis.state]} ${formatProviderLabel(provider.usage.provider)} 5h ${titleFive} / 7d ${titleSeven}`;
   const lines = [title, "---"];
 
   for (const item of snapshot.providers) {
