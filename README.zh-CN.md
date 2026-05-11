@@ -26,6 +26,8 @@ BurnKit 先把这些东西变成信号。等信号多到你接不住，你就会
 | iTerm2 Tab Color | `bin/burnkit install tabs` | Claude Code / Codex 等你时，把非当前 iTerm2 tab 染色 | 把被遗忘的 prompt 变成可见压力 |
 | Burn AI | `bin/burnkit status --refresh` | 追踪本机 Claude Code / Codex plan usage 和燃烧节奏 | 别浪费昂贵窗口，也别每个周期无脑打满 |
 
+> **提示：** 如果你的菜单栏比较拥挤，可以安装 [Dozer](https://github.com/Mortennn/Dozer)（免费开源）来隐藏不常用的图标，让 Burn AI 的信息更突出。
+
 ![三件套总览：Provider 路由、tab 颜色压迫和 plan usage 节奏控制](assets/readme/toolkit-overview.png)
 
 ## 让你的 Agent 自动安装

@@ -28,6 +28,8 @@ That is the harness entrance.
 
 ![SwiftBar menubar — Codex and Claude burn pace at a glance](assets/menubar-screenshot.png)
 
+> **Tip:** If your menu bar gets crowded, consider a free tool like [Dozer](https://github.com/Mortennn/Dozer) to hide less-used icons and keep the Burn AI menubar signal front and center.
+
 ![burnkit install all --dry-run](assets/demo-install.gif)
 
 ## Let Your Agent Install It
