@@ -337,11 +337,20 @@ start_team() {
         unset CLAUDE_CODE_EFFORT_LEVEL
     fi
 
-    # 清除旧的模型 override，让路由代理完全接管
-    unset ANTHROPIC_SMALL_FAST_MODEL
-    unset ANTHROPIC_DEFAULT_SONNET_MODEL
-    unset ANTHROPIC_DEFAULT_OPUS_MODEL
-    unset ANTHROPIC_DEFAULT_HAIKU_MODEL
+    # leader 模型 override：让 Claude Code 发送 provider 支持的模型名
+    # teammate 的模型由路由器 prepare_body 替换
+    if [[ -n "$leader_model" ]]; then
+        export ANTHROPIC_SMALL_FAST_MODEL="$leader_model"
+        export ANTHROPIC_DEFAULT_SONNET_MODEL="$leader_model"
+        export ANTHROPIC_DEFAULT_OPUS_MODEL="$leader_model"
+        export ANTHROPIC_DEFAULT_HAIKU_MODEL="$leader_model"
+        echo -e "${YELLOW}   Leader Model Override: $leader_model${NC}"
+    else
+        unset ANTHROPIC_SMALL_FAST_MODEL
+        unset ANTHROPIC_DEFAULT_SONNET_MODEL
+        unset ANTHROPIC_DEFAULT_OPUS_MODEL
+        unset ANTHROPIC_DEFAULT_HAIKU_MODEL
+    fi
 
     export ANTHROPIC_BASE_URL="http://127.0.0.1:${ROUTER_ALLOCATED_PORT}"
     unset ANTHROPIC_AUTH_TOKEN

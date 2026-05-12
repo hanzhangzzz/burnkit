@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { ensureDir, isFile } from "./fs-util.js";
 import { formatDurationUntil, formatProviderLabel } from "./format.js";
 import { buildPaths } from "./paths.js";
@@ -11,29 +12,135 @@ const MARKER = "burn-ai managed SwiftBar plugin";
 const SWIFTBAR_APP_PATHS = ["/Applications/SwiftBar.app", path.join(process.env.HOME ?? "", "Applications", "SwiftBar.app")];
 
 const STATE_LABEL: Record<BurnState, string> = {
-  RAW: "Wait",
-  UNDER_BURN: "Slow",
-  ON_TRACK: "OK",
+  RAW: "Learning",
+  UNDER_BURN: "Low",
+  ON_TRACK: "On Track",
   OVER_BURN: "Fast",
   LIMIT_RISK: "Limit",
 };
 
-const ALERT_COLOR = "#D70015";
-const OK_COLOR = "#248A3D";
-const RAW_COLOR = "#6B7280";
+// Local copies of official site icons keep SwiftBar rendering offline and stable.
+const PROVIDER_ICON_ASSET: Record<string, string> = {
+  claude: "claude-code-official.png",
+  codex: "codex-openai-official.png",
+};
+
+const PROVIDER_ICON_FALLBACK: Record<string, string> = {
+  claude: "sparkles",
+  codex: "curlybraces.square.fill",
+};
+
+const TITLE_ICON_ASSET = "provider-icons-official.png";
+const ALERT_COLOR = "#FF453A,#FF6961";
+const WARNING_COLOR = "#FF9F0A,#FFD60A";
+const OK_COLOR = "#248A3D,#30D158";
+const RAW_COLOR = "#6B7280,#8E8E93";
 
 const STATE_COLOR: Record<BurnState, string> = {
   RAW: RAW_COLOR,
-  UNDER_BURN: ALERT_COLOR,
+  UNDER_BURN: WARNING_COLOR,
   ON_TRACK: OK_COLOR,
   OVER_BURN: ALERT_COLOR,
   LIMIT_RISK: ALERT_COLOR,
 };
 
-const TEXT_COLOR = "#111827";
-const MUTED_COLOR = RAW_COLOR;
+const STATE_PRIORITY: Record<BurnState, number> = {
+  LIMIT_RISK: 0,
+  OVER_BURN: 1,
+  UNDER_BURN: 2,
+  RAW: 3,
+  ON_TRACK: 4,
+};
+
+const TEXT_COLOR = "#111827,#F9FAFB";
+const MUTED_COLOR = "#6B7280,#A1A1AA";
 const ROW_FONT = "Menlo";
 const TITLE_PROVIDER_ORDER = ["codex", "claude"];
+const TITLE_SEPARATOR = "│";
+const METER_WIDTH = 12;
+const ASSET_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "assets");
+const imageCache = new Map<string, string | null>();
+const titleImageCache = new Map<string, string | null>();
+
+const TITLE_IMAGE_SCRIPT = `
+ObjC.import('AppKit');
+ObjC.import('Foundation');
+
+function hexColor(hex) {
+  const value = hex.replace('#', '');
+  const r = parseInt(value.slice(0, 2), 16) / 255;
+  const g = parseInt(value.slice(2, 4), 16) / 255;
+  const b = parseInt(value.slice(4, 6), 16) / 255;
+  return $.NSColor.colorWithSRGBRedGreenBlueAlpha(r, g, b, 1);
+}
+
+function drawImage(payload, variant) {
+  const attrs = $.NSMutableDictionary.alloc.init;
+  attrs.setObjectForKey($.NSFont.monospacedDigitSystemFontOfSizeWeight(payload.fontSize, $.NSFontWeightSemibold), $.NSFontAttributeName);
+  attrs.setObjectForKey(hexColor(variant.textColor), $.NSForegroundColorAttributeName);
+
+  const shadowAttrs = $.NSMutableDictionary.alloc.init;
+  shadowAttrs.setObjectForKey($.NSFont.monospacedDigitSystemFontOfSizeWeight(payload.fontSize, $.NSFontWeightSemibold), $.NSFontAttributeName);
+  shadowAttrs.setObjectForKey(hexColor(variant.shadowColor), $.NSForegroundColorAttributeName);
+
+  const dividerAttrs = $.NSMutableDictionary.alloc.init;
+  dividerAttrs.setObjectForKey($.NSFont.systemFontOfSizeWeight(payload.fontSize, $.NSFontWeightSemibold), $.NSFontAttributeName);
+  dividerAttrs.setObjectForKey(hexColor(variant.dividerColor), $.NSForegroundColorAttributeName);
+
+  const dividerShadowAttrs = $.NSMutableDictionary.alloc.init;
+  dividerShadowAttrs.setObjectForKey($.NSFont.systemFontOfSizeWeight(payload.fontSize, $.NSFontWeightSemibold), $.NSFontAttributeName);
+  dividerShadowAttrs.setObjectForKey(hexColor(variant.shadowColor), $.NSForegroundColorAttributeName);
+
+  const dividerWidth = Math.ceil($(payload.divider).sizeWithAttributes(dividerAttrs).width);
+  let width = payload.paddingX * 2;
+  payload.segments.forEach((segment, index) => {
+    if (index > 0) {
+      width += payload.segmentGap + dividerWidth + payload.segmentGap;
+    }
+    width += payload.iconSize + payload.iconTextGap + Math.ceil($(segment.text).sizeWithAttributes(attrs).width);
+  });
+  width = Math.max(payload.minWidth, width);
+
+  const rep = $.NSBitmapImageRep.alloc.initWithBitmapDataPlanesPixelsWidePixelsHighBitsPerSampleSamplesPerPixelHasAlphaIsPlanarColorSpaceNameBitmapFormatBytesPerRowBitsPerPixel(
+    null, width, payload.height, 8, 4, true, false, $.NSDeviceRGBColorSpace, $.NSBitmapFormatAlphaPremultipliedLast, 0, 0
+  );
+  const context = $.NSGraphicsContext.graphicsContextWithBitmapImageRep(rep);
+  $.NSGraphicsContext.setCurrentContext(context);
+
+  let x = payload.paddingX;
+  const iconY = Math.floor((payload.height - payload.iconSize) / 2);
+  const textY = Math.floor((payload.height - payload.fontSize - 2) / 2);
+  payload.segments.forEach((segment, index) => {
+    if (index > 0) {
+      x += payload.segmentGap;
+      $(payload.divider).drawAtPointWithAttributes($.NSMakePoint(x, textY - 1), dividerShadowAttrs);
+      $(payload.divider).drawAtPointWithAttributes($.NSMakePoint(x, textY), dividerAttrs);
+      x += dividerWidth + payload.segmentGap;
+    }
+    if (segment.iconPath) {
+      const icon = $.NSImage.alloc.initWithContentsOfFile($(segment.iconPath));
+      if (icon) {
+        icon.drawInRectFromRectOperationFraction($.NSMakeRect(x, iconY, payload.iconSize, payload.iconSize), $.NSZeroRect, $.NSCompositingOperationSourceOver, 1);
+      }
+    }
+    x += payload.iconSize + payload.iconTextGap;
+    $(segment.text).drawAtPointWithAttributes($.NSMakePoint(x, textY - 1), shadowAttrs);
+    $(segment.text).drawAtPointWithAttributes($.NSMakePoint(x, textY), attrs);
+    x += Math.ceil($(segment.text).sizeWithAttributes(attrs).width);
+  });
+
+  const png = rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $.NSDictionary.alloc.init);
+  return ObjC.unwrap(png.base64EncodedStringWithOptions(0));
+}
+
+function run(argv) {
+  const payload = JSON.parse(argv[0]);
+  return JSON.stringify({
+    light: drawImage(payload, payload.light),
+    dark: drawImage(payload, payload.dark),
+  });
+}
+`;
 
 function appCliPath(paths: RuntimePaths) {
   return path.join(paths.stateDir, "app", "dist", "cli.js");
@@ -124,6 +231,34 @@ function swiftBarEscape(value: string) {
   return value.replaceAll("|", "\\|");
 }
 
+function swiftBarParamValue(value: string | number | boolean) {
+  return String(value).replaceAll(" ", "\\ ");
+}
+
+function line(title: string, params: Record<string, string | number | boolean | undefined> = {}) {
+  const renderedParams = Object.entries(params)
+    .filter((entry): entry is [string, string | number | boolean] => entry[1] !== undefined)
+    .map(([key, value]) => `${key}=${swiftBarParamValue(value)}`);
+  if (renderedParams.length === 0) {
+    return swiftBarEscape(title);
+  }
+  return `${swiftBarEscape(title)} | ${renderedParams.join(" ")}`;
+}
+
+function imageAssetBase64(name: string) {
+  if (imageCache.has(name)) {
+    return imageCache.get(name);
+  }
+  try {
+    const encoded = fs.readFileSync(path.join(ASSET_DIR, name)).toString("base64");
+    imageCache.set(name, encoded);
+    return encoded;
+  } catch {
+    imageCache.set(name, null);
+    return null;
+  }
+}
+
 function titleProviders(snapshot: StatusSnapshot) {
   return [...snapshot.providers].sort((left, right) => {
     const leftIndex = TITLE_PROVIDER_ORDER.indexOf(left.usage.provider);
@@ -139,27 +274,125 @@ function titleSegment(provider: StatusSnapshot["providers"][number]) {
   const sevenDay = provider.analysis.sevenDay;
   const titleFive = fiveHour ? `${Math.round(fiveHour.usedPercent)}%` : "--";
   const titleSeven = sevenDay ? `${Math.round(sevenDay.usedPercent)}%` : "--";
-  return `${formatProviderLabel(provider.usage.provider)}(${STATE_LABEL[provider.analysis.state]}) 5h ${titleFive} / 7d ${titleSeven}`;
+  return `5H:${titleFive},7D:${titleSeven}`;
+}
+
+function providerIconPath(provider: string) {
+  const asset = PROVIDER_ICON_ASSET[provider];
+  if (!asset) {
+    return null;
+  }
+  const iconPath = path.join(ASSET_DIR, asset);
+  return fs.existsSync(iconPath) ? iconPath : null;
+}
+
+function titleImageValue(providers: StatusSnapshot["providers"]) {
+  const segments = providers.map((provider) => ({
+    provider: provider.usage.provider,
+    text: titleSegment(provider),
+    iconPath: providerIconPath(provider.usage.provider),
+  }));
+  if (segments.length === 0 || segments.some((segment) => !segment.iconPath)) {
+    return null;
+  }
+
+  const payload = {
+    segments,
+    divider: TITLE_SEPARATOR,
+    height: 22,
+    minWidth: 1,
+    paddingX: 0,
+    iconSize: 16,
+    iconTextGap: 4,
+    segmentGap: 9,
+    fontSize: 12,
+    light: {
+      textColor: "FFFFFF",
+      dividerColor: "E5E7EB",
+      shadowColor: "111827",
+    },
+    dark: {
+      textColor: "FFFFFF",
+      dividerColor: "E5E7EB",
+      shadowColor: "111827",
+    },
+  };
+  const cacheKey = JSON.stringify(payload);
+  if (titleImageCache.has(cacheKey)) {
+    return titleImageCache.get(cacheKey);
+  }
+
+  try {
+    const output = execFileSync("/usr/bin/osascript", ["-l", "JavaScript", "-e", TITLE_IMAGE_SCRIPT, cacheKey], {
+      encoding: "utf8",
+      timeout: 2500,
+    }).trim();
+    const images = JSON.parse(output) as { light?: string; dark?: string };
+    const value = images.light && images.dark ? `${images.light},${images.dark}` : null;
+    titleImageCache.set(cacheKey, value);
+    return value;
+  } catch {
+    titleImageCache.set(cacheKey, null);
+    return null;
+  }
 }
 
 function targetLabel(provider: StatusSnapshot["providers"][number]) {
   const target = provider.analysis.target;
   if (!target) {
-    return "Target: learning";
+    return "Target learning baseline";
   }
-  return `Target: ${target.minPercent.toFixed(1)}%-${target.maxPercent.toFixed(1)}%`;
+  return `Target ${target.minPercent.toFixed(1)}-${target.maxPercent.toFixed(1)}%`;
 }
 
 function windowByName(provider: StatusSnapshot["providers"][number], name: "five_hour" | "seven_day") {
   return provider.usage.windows.find((window) => window.name === name);
 }
 
-function row(label: string, value: string, color = TEXT_COLOR) {
-  return `${label.padEnd(11)} ${value} | color=${color} font=${ROW_FONT} size=13`;
+function muted(text: string) {
+  return line(text, { color: MUTED_COLOR, size: 12 });
 }
 
-function muted(text: string) {
-  return `${swiftBarEscape(text)} | color=${MUTED_COLOR} size=12`;
+function meter(usedPercent: number, width = METER_WIDTH) {
+  const usedCells = Math.max(0, Math.min(width, Math.round((usedPercent / 100) * width)));
+  return `${"#".repeat(usedCells)}${"-".repeat(width - usedCells)}`;
+}
+
+function usageLine(label: "5h" | "7d", usedPercent: number, resetsAt: string, color: string) {
+  const percent = `${Math.round(usedPercent).toString().padStart(3)}%`;
+  return line(`${label}  ${meter(usedPercent)}  ${percent}  reset ${formatDurationUntil(resetsAt)}`, {
+    color,
+    font: ROW_FONT,
+    size: 12,
+  });
+}
+
+function providerBadge(provider: StatusSnapshot["providers"][number]) {
+  const fiveHour = provider.analysis.fiveHour;
+  if (!fiveHour) {
+    return STATE_LABEL[provider.analysis.state];
+  }
+  return `${Math.round(fiveHour.usedPercent)}%`;
+}
+
+function providerIconParams(provider: string) {
+  const image = imageAssetBase64(PROVIDER_ICON_ASSET[provider] ?? "");
+  if (image) {
+    return { image };
+  }
+  return { sfimage: PROVIDER_ICON_FALLBACK[provider] ?? "terminal.fill" };
+}
+
+function titleIconParams() {
+  const image = imageAssetBase64(TITLE_ICON_ASSET);
+  if (image) {
+    return { image };
+  }
+  return { sfimage: "flame.fill", sfcolor: RAW_COLOR };
+}
+
+function maxProviderAge(snapshot: StatusSnapshot) {
+  return Math.max(0, ...snapshot.providers.map((item) => item.meta.ageSeconds));
 }
 
 function issueLabel(code: string) {
@@ -176,40 +409,86 @@ function issueLabel(code: string) {
 }
 
 export function renderMenuBar(snapshot: StatusSnapshot = loadDisplayStatusSnapshot()) {
-  const title = titleProviders(snapshot).map(titleSegment).join("  ");
+  const providers = titleProviders(snapshot);
+  const title = providers.map(titleSegment).join(` ${TITLE_SEPARATOR} `);
   if (!title) {
-    return ["No Usage", "---", "No provider usage available"].join("\n");
+    return [
+      line("Burn AI  No Usage", { sfimage: "flame.fill", sfcolor: RAW_COLOR }),
+      "---",
+      line("No provider usage available", { color: MUTED_COLOR }),
+      line("Refresh now", { refresh: true, color: TEXT_COLOR, sfimage: "arrow.clockwise" }),
+    ].join("\n");
   }
 
-  const lines = [title, "---"];
+  const topState = [...providers].sort((left, right) => (
+    STATE_PRIORITY[left.analysis.state] - STATE_PRIORITY[right.analysis.state]
+  ))[0]?.analysis.state
+    ?? "RAW";
+  const titleImage = titleImageValue(providers);
+  const lines = [
+    titleImage
+      ? line("", {
+        image: titleImage,
+        dropdown: false,
+        tooltip: title,
+      })
+      : line(title, {
+        ...titleIconParams(),
+        dropdown: false,
+      }),
+    "---",
+    line("Burn AI", {
+      color: TEXT_COLOR,
+      size: 15,
+      sfimage: "flame.fill",
+      sfcolor: STATE_COLOR[topState],
+      badge: snapshot.profile.toUpperCase(),
+    }),
+    muted(`Data age ${maxProviderAge(snapshot)}s`),
+    "---",
+  ];
 
-  for (const item of snapshot.providers) {
+  for (const item of providers) {
     const color = STATE_COLOR[item.analysis.state];
     const five = windowByName(item, "five_hour");
     const seven = windowByName(item, "seven_day");
-    lines.push(`${formatProviderLabel(item.usage.provider)}  ${STATE_LABEL[item.analysis.state]} | color=${color} size=14`);
+    lines.push(line(`${formatProviderLabel(item.usage.provider)}  ${STATE_LABEL[item.analysis.state]}`, {
+      ...providerIconParams(item.usage.provider),
+      color,
+      size: 14,
+      badge: providerBadge(item),
+    }));
     if (five) {
-      lines.push(row("5h usage", `${Math.round(five.usedPercent).toString().padStart(3)}%   reset ${formatDurationUntil(five.resetsAt)}`, color));
+      lines.push(usageLine("5h", five.usedPercent, five.resetsAt, color));
     }
     if (seven) {
-      lines.push(row("7d usage", `${Math.round(seven.usedPercent).toString().padStart(3)}%   reset ${formatDurationUntil(seven.resetsAt)}`, TEXT_COLOR));
+      lines.push(usageLine("7d", seven.usedPercent, seven.resetsAt, TEXT_COLOR));
     }
     lines.push(muted(targetLabel(item)));
-    lines.push(muted(item.analysis.message));
+    lines.push(line(item.analysis.message, { color: MUTED_COLOR, size: 12, length: 84 }));
     lines.push("---");
   }
 
   for (const issue of snapshot.issues) {
-    const color = ALERT_COLOR;
-    lines.push(`${issue.severity.toUpperCase()}  ${issueLabel(issue.code)} | color=${color} size=13`);
+    const color = issue.severity === "error" ? ALERT_COLOR : WARNING_COLOR;
+    lines.push(line(`${issue.severity.toUpperCase()}  ${issueLabel(issue.code)}`, {
+      color,
+      size: 13,
+      sfimage: "exclamationmark.triangle.fill",
+      sfcolor: color,
+    }));
     lines.push(muted(issue.message));
   }
 
   if (snapshot.issues.length > 0) {
     lines.push("---");
   }
-  lines.push(muted(`Data age ${Math.max(0, ...snapshot.providers.map((item) => item.meta.ageSeconds))}s`));
-  lines.push("Refresh now | refresh=true color=#111827");
+  lines.push(line("Refresh now", {
+    refresh: true,
+    color: TEXT_COLOR,
+    sfimage: "arrow.clockwise",
+    shortcut: "CMD+R",
+  }));
   return lines.join("\n");
 }
 

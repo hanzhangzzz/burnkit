@@ -88,14 +88,15 @@ const snapshot = {
 test("renderMenuBar outputs SwiftBar-compatible status text", () => {
   const output = renderMenuBar(snapshot);
 
-  assert.match(output, /^Codex\(Slow\) 5h 0% \/ 7d 35%  Claude\(Fast\) 5h 31% \/ 7d 69%/);
+  assert.match(output, /^ \| image=[A-Za-z0-9+/=]+,[A-Za-z0-9+/=]+ dropdown=false tooltip=5H:0%,7D:35%\\ │\\ 5H:31%,7D:69%/);
   assert.match(output, /\n---\n/);
-  assert.match(output, /Codex  Slow \| color=#D70015/);
-  assert.match(output, /Claude  Fast \| color=#D70015/);
-  assert.match(output, /5h usage\s+0%\s+reset/);
-  assert.match(output, /7d usage\s+35%\s+reset/);
-  assert.match(output, /WARNING  Claude not connected \| color=#D70015/);
-  assert.match(output, /Refresh now \| refresh=true/);
+  assert.match(output, /Burn AI \| color=#111827,#F9FAFB size=15 sfimage=flame\.fill/);
+  assert.match(output, /Codex  Low \| image=[A-Za-z0-9+/=]+ color=#FF9F0A,#FFD60A size=14/);
+  assert.match(output, /Claude  Fast \| image=[A-Za-z0-9+/=]+ color=#FF453A,#FF6961 size=14/);
+  assert.match(output, /5h\s+-{12}\s+0%\s+reset/);
+  assert.match(output, /7d\s+#{4}-{8}\s+35%\s+reset/);
+  assert.match(output, /WARNING  Claude not connected \| color=#FF9F0A,#FFD60A size=13 sfimage=exclamationmark\.triangle\.fill/);
+  assert.match(output, /Refresh now \| refresh=true color=#111827,#F9FAFB sfimage=arrow\.clockwise shortcut=CMD\+R/);
 });
 
 test("swiftBarStatusItemVisibilityKeys finds hidden status item cache keys", () => {

@@ -58,6 +58,8 @@
   - `burn-ai status --json` 可读回同一份状态。
 - 展示层后续方向：
   - v1 先用 SwiftBar 插件走通 macOS Menu Bar 体验链条。
+  - SwiftBar 标题栏必须保持单个稳定 title item；不要用 `---` 前多行 header 表达多个 provider，否则 SwiftBar 会把它们当成多个菜单栏项轮流展示。
+  - 如果标题栏需要每个 provider 的独立图标，使用运行时生成的单张透明 PNG 传给 SwiftBar `image=`，不要拆成多个 title item。
   - 长期首选原生 macOS Menu Bar app，作为主展示层。
   - Menu Bar 展示层只读 `status.json`，不参与采集、不处理登录、不访问 provider 文件。
   - 系统通知文案后续应收敛为“需要注意，去看状态面板”，而不是试图在横幅里讲完整策略。

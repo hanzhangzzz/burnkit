@@ -102,13 +102,13 @@ burn-ai menubar install
 
 If SwiftBar is not installed, `burn-ai doctor` will report it. If SwiftBar already has a custom plugin folder, Burn AI uses that folder.
 
-The menu bar title shows the highest-priority provider state, including both 5h and 7d usage:
+The menu bar title shows the official OpenAI/Codex and Claude Code icons with compact 5h/7d percentages:
 
 ```text
-Burn OK Codex 5h 4% / 7d 36%
+{Codex icon} 5H:14%,7D:67% │ {Claude icon} 5H:24%,7D:74%
 ```
 
-The dropdown stays read-only and shows usage, reset time, target range, data age, and warnings. SwiftBar is a host dependency; `burn-ai uninstall` removes the Burn AI plugin but does not uninstall SwiftBar itself.
+SwiftBar only supports one bitmap image on a single stable title item, so Burn AI renders the full title into one transparent PNG at render time. That bitmap keeps each provider icon next to its own usage segment while avoiding SwiftBar's multi-title rotation behavior. The dropdown stays read-only and uses SwiftBar-native symbols, badges, progress meters, reset time, target range, data age, and warnings. SwiftBar is a host dependency; `burn-ai uninstall` removes the Burn AI plugin but does not uninstall SwiftBar itself.
 
 ## Runtime Files
 
