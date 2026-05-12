@@ -60,7 +60,8 @@ const TITLE_SEPARATOR = "│";
 const METER_WIDTH = 12;
 const ASSET_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "assets");
 const imageCache = new Map<string, string | null>();
-const titleImageCache = new Map<string, string | null>();
+const TITLE_IMAGE_SCALE = 2;
+const titleImageCache = new Map<string, { image: string; width: number; height: number } | null>();
 
 const TITLE_IMAGE_SCRIPT = `
 ObjC.import('AppKit');
@@ -75,62 +76,65 @@ function hexColor(hex) {
 }
 
 function drawImage(payload, variant) {
+  const scale = payload.scale || 1;
+  const height = payload.height * scale;
+  const fontSize = payload.fontSize * scale;
+  const iconSize = payload.iconSize * scale;
+  const paddingX = payload.paddingX * scale;
+  const iconTextGap = payload.iconTextGap * scale;
+  const segmentGap = payload.segmentGap * scale;
   const attrs = $.NSMutableDictionary.alloc.init;
-  attrs.setObjectForKey($.NSFont.monospacedDigitSystemFontOfSizeWeight(payload.fontSize, $.NSFontWeightSemibold), $.NSFontAttributeName);
+  attrs.setObjectForKey($.NSFont.menuBarFontOfSize(fontSize), $.NSFontAttributeName);
   attrs.setObjectForKey(hexColor(variant.textColor), $.NSForegroundColorAttributeName);
 
-  const shadowAttrs = $.NSMutableDictionary.alloc.init;
-  shadowAttrs.setObjectForKey($.NSFont.monospacedDigitSystemFontOfSizeWeight(payload.fontSize, $.NSFontWeightSemibold), $.NSFontAttributeName);
-  shadowAttrs.setObjectForKey(hexColor(variant.shadowColor), $.NSForegroundColorAttributeName);
-
   const dividerAttrs = $.NSMutableDictionary.alloc.init;
-  dividerAttrs.setObjectForKey($.NSFont.systemFontOfSizeWeight(payload.fontSize, $.NSFontWeightSemibold), $.NSFontAttributeName);
+  dividerAttrs.setObjectForKey($.NSFont.menuBarFontOfSize(fontSize), $.NSFontAttributeName);
   dividerAttrs.setObjectForKey(hexColor(variant.dividerColor), $.NSForegroundColorAttributeName);
 
-  const dividerShadowAttrs = $.NSMutableDictionary.alloc.init;
-  dividerShadowAttrs.setObjectForKey($.NSFont.systemFontOfSizeWeight(payload.fontSize, $.NSFontWeightSemibold), $.NSFontAttributeName);
-  dividerShadowAttrs.setObjectForKey(hexColor(variant.shadowColor), $.NSForegroundColorAttributeName);
-
   const dividerWidth = Math.ceil($(payload.divider).sizeWithAttributes(dividerAttrs).width);
-  let width = payload.paddingX * 2;
+  let width = paddingX * 2;
   payload.segments.forEach((segment, index) => {
     if (index > 0) {
-      width += payload.segmentGap + dividerWidth + payload.segmentGap;
+      width += segmentGap + dividerWidth + segmentGap;
     }
-    width += payload.iconSize + payload.iconTextGap + Math.ceil($(segment.text).sizeWithAttributes(attrs).width);
+    width += iconSize + iconTextGap + Math.ceil($(segment.text).sizeWithAttributes(attrs).width);
   });
-  width = Math.max(payload.minWidth, width);
+  width = Math.max(payload.minWidth * scale, width);
 
   const rep = $.NSBitmapImageRep.alloc.initWithBitmapDataPlanesPixelsWidePixelsHighBitsPerSampleSamplesPerPixelHasAlphaIsPlanarColorSpaceNameBitmapFormatBytesPerRowBitsPerPixel(
-    null, width, payload.height, 8, 4, true, false, $.NSDeviceRGBColorSpace, $.NSBitmapFormatAlphaPremultipliedLast, 0, 0
+    null, width, height, 8, 4, true, false, $.NSDeviceRGBColorSpace, $.NSBitmapFormatAlphaPremultipliedLast, 0, 0
   );
   const context = $.NSGraphicsContext.graphicsContextWithBitmapImageRep(rep);
   $.NSGraphicsContext.setCurrentContext(context);
+  context.setShouldAntialias(true);
+  context.setImageInterpolation($.NSImageInterpolationHigh);
 
-  let x = payload.paddingX;
-  const iconY = Math.floor((payload.height - payload.iconSize) / 2);
-  const textY = Math.floor((payload.height - payload.fontSize - 2) / 2);
+  let x = paddingX;
+  const iconY = Math.floor((height - iconSize) / 2);
+  const textY = Math.floor((height - fontSize - (2 * scale)) / 2);
   payload.segments.forEach((segment, index) => {
     if (index > 0) {
-      x += payload.segmentGap;
-      $(payload.divider).drawAtPointWithAttributes($.NSMakePoint(x, textY - 1), dividerShadowAttrs);
+      x += segmentGap;
       $(payload.divider).drawAtPointWithAttributes($.NSMakePoint(x, textY), dividerAttrs);
-      x += dividerWidth + payload.segmentGap;
+      x += dividerWidth + segmentGap;
     }
     if (segment.iconPath) {
       const icon = $.NSImage.alloc.initWithContentsOfFile($(segment.iconPath));
       if (icon) {
-        icon.drawInRectFromRectOperationFraction($.NSMakeRect(x, iconY, payload.iconSize, payload.iconSize), $.NSZeroRect, $.NSCompositingOperationSourceOver, 1);
+        icon.drawInRectFromRectOperationFraction($.NSMakeRect(x, iconY, iconSize, iconSize), $.NSZeroRect, $.NSCompositingOperationSourceOver, 1);
       }
     }
-    x += payload.iconSize + payload.iconTextGap;
-    $(segment.text).drawAtPointWithAttributes($.NSMakePoint(x, textY - 1), shadowAttrs);
+    x += iconSize + iconTextGap;
     $(segment.text).drawAtPointWithAttributes($.NSMakePoint(x, textY), attrs);
     x += Math.ceil($(segment.text).sizeWithAttributes(attrs).width);
   });
 
   const png = rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $.NSDictionary.alloc.init);
-  return ObjC.unwrap(png.base64EncodedStringWithOptions(0));
+  return {
+    image: ObjC.unwrap(png.base64EncodedStringWithOptions(0)),
+    width: Math.ceil(width / scale),
+    height: payload.height,
+  };
 }
 
 function run(argv) {
@@ -299,22 +303,21 @@ function titleImageValue(providers: StatusSnapshot["providers"]) {
   const payload = {
     segments,
     divider: TITLE_SEPARATOR,
+    scale: TITLE_IMAGE_SCALE,
     height: 22,
     minWidth: 1,
     paddingX: 0,
     iconSize: 16,
     iconTextGap: 4,
     segmentGap: 9,
-    fontSize: 12,
+    fontSize: 13,
     light: {
       textColor: "FFFFFF",
       dividerColor: "E5E7EB",
-      shadowColor: "111827",
     },
     dark: {
       textColor: "FFFFFF",
       dividerColor: "E5E7EB",
-      shadowColor: "111827",
     },
   };
   const cacheKey = JSON.stringify(payload);
@@ -327,8 +330,17 @@ function titleImageValue(providers: StatusSnapshot["providers"]) {
       encoding: "utf8",
       timeout: 2500,
     }).trim();
-    const images = JSON.parse(output) as { light?: string; dark?: string };
-    const value = images.light && images.dark ? `${images.light},${images.dark}` : null;
+    const images = JSON.parse(output) as {
+      light?: { image?: string; width?: number; height?: number };
+      dark?: { image?: string; width?: number; height?: number };
+    };
+    const value = images.light?.image && images.dark?.image && images.light.width && images.light.height
+      ? {
+        image: `${images.light.image},${images.dark.image}`,
+        width: images.light.width,
+        height: images.light.height,
+      }
+      : null;
     titleImageCache.set(cacheKey, value);
     return value;
   } catch {
@@ -428,7 +440,9 @@ export function renderMenuBar(snapshot: StatusSnapshot = loadDisplayStatusSnapsh
   const lines = [
     titleImage
       ? line("", {
-        image: titleImage,
+        image: titleImage.image,
+        width: titleImage.width,
+        height: titleImage.height,
         dropdown: false,
         tooltip: title,
       })

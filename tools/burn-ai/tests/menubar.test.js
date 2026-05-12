@@ -85,10 +85,28 @@ const snapshot = {
   ],
 };
 
+function pngInfoFromBase64(value) {
+  const buffer = Buffer.from(value, "base64");
+  const chunks = new Map();
+  let offset = 8;
+  while (offset < buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString("ascii", offset + 4, offset + 8);
+    chunks.set(type, buffer.subarray(offset + 8, offset + 8 + length));
+    offset += length + 12;
+  }
+  const header = chunks.get("IHDR");
+  assert.ok(header, "PNG image is missing IHDR");
+  return {
+    width: header.readUInt32BE(0),
+    height: header.readUInt32BE(4),
+  };
+}
+
 test("renderMenuBar outputs SwiftBar-compatible status text", () => {
   const output = renderMenuBar(snapshot);
 
-  assert.match(output, /^ \| image=[A-Za-z0-9+/=]+,[A-Za-z0-9+/=]+ dropdown=false tooltip=5H:0%,7D:35%\\ │\\ 5H:31%,7D:69%/);
+  assert.match(output, /^ \| image=[A-Za-z0-9+/=]+,[A-Za-z0-9+/=]+ width=\d+ height=22 dropdown=false tooltip=5H:0%,7D:35%\\ │\\ 5H:31%,7D:69%/);
   assert.match(output, /\n---\n/);
   assert.match(output, /Burn AI \| color=#111827,#F9FAFB size=15 sfimage=flame\.fill/);
   assert.match(output, /Codex  Low \| image=[A-Za-z0-9+/=]+ color=#FF9F0A,#FFD60A size=14/);
@@ -97,6 +115,23 @@ test("renderMenuBar outputs SwiftBar-compatible status text", () => {
   assert.match(output, /7d\s+#{4}-{8}\s+35%\s+reset/);
   assert.match(output, /WARNING  Claude not connected \| color=#FF9F0A,#FFD60A size=13 sfimage=exclamationmark\.triangle\.fill/);
   assert.match(output, /Refresh now \| refresh=true color=#111827,#F9FAFB sfimage=arrow\.clockwise shortcut=CMD\+R/);
+});
+
+test("renderMenuBar title keeps provider icons scoped to their usage segments", () => {
+  const output = renderMenuBar(snapshot);
+  const titleLine = output.split("\n")[0];
+  const imageParam = titleLine.match(/image=([^ ]+)/)?.[1];
+  assert.ok(imageParam, "title line should include a composite image");
+
+  assert.match(titleLine, /^ \| image=/);
+  assert.match(titleLine, / width=\d+ height=22 dropdown=false /);
+  assert.match(titleLine, /tooltip=5H:0%,7D:35%\\ │\\ 5H:31%,7D:69%/);
+  for (const encodedImage of imageParam.split(",")) {
+    const image = pngInfoFromBase64(encodedImage);
+    assert.equal(image.height, 44);
+    assert.ok(image.width > 240, "title image should include both provider segments at 2x");
+    assert.ok(image.width < 520, "title image should stay within normal menu bar width at 2x");
+  }
 });
 
 test("swiftBarStatusItemVisibilityKeys finds hidden status item cache keys", () => {
