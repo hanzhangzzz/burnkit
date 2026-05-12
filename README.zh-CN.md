@@ -6,7 +6,7 @@
 
 BurnKit 是给并行跑 Claude Code 和 Codex 的开发者准备的三件套。它帮你把任务路由到正确 Provider，在 AI 等你时染色提醒空闲 tab，并盯住昂贵 plan 窗口有没有悄悄空转。
 
-中文精神名：`卷死你三件套`。
+中文精神名：`卷王三件套`。
 
 不是我卷疯了，也不是想把你卷疯。
 
@@ -16,21 +16,51 @@ BurnKit 先把这些东西变成信号。等信号多到你接不住，你就会
 
 没错，这就是 harness 的入口。
 
-![六个 AI 编程 session 分布在多个终端 tab 中，并按空闲压力显示颜色](assets/readme/hero-ai-tabs.png)
-
 ## 你会得到什么
 
-| 工具 | 命令 | 职责 | 为什么需要它 |
-|------|------|------|--------------|
-| Claude Provider Router | `c 0` | 用编号 Provider 启动 Claude Code，并支持 Agent Team leader/teammate 分流 | 把正确任务放到正确模型、endpoint 和额度上 |
-| iTerm2 Tab Color | `bin/burnkit install tabs` | Claude Code / Codex 等你时，把非当前 iTerm2 tab 染色 | 把被遗忘的 prompt 变成可见压力 |
-| Burn AI | `bin/burnkit status --refresh` | 追踪本机 Claude Code / Codex plan usage 和燃烧节奏 | 别浪费昂贵窗口，也别每个周期无脑打满 |
-
-![Claude Provider Router：用 c 短命令切换模型，并让 Team leader 和 teammate 走不同 Provider](assets/launch/c-router-launch.gif)
+| 工具 | 效果 | 入口命令 | 职责 |
+|------|------|----------|------|
+| Claude Provider Router | <img src="assets/launch/c-router-launch.gif" alt="Claude Provider Router 用 c 0 和 c team 2 0 展示模型切换与 team 分流" width="320"> | `c 0`<br>`c team 2 0` | 用编号 Provider 启动 Claude Code，并支持 Agent Team leader/teammate 分流。 |
+| iTerm2 Tab Color | <img src="assets/demo-tab-color.gif" alt="iTerm2 tab 用绿色、黄色、红色展示等待压力" width="320"> | `bin/burnkit install tabs` | Claude Code / Codex 等你时，把非当前 iTerm2 tab 染色。 |
+| Burn AI | <img src="assets/menubar-screenshot.png" alt="SwiftBar 菜单栏展示 Codex 和 Claude 的燃烧节奏" width="320"> | `bin/burnkit status --refresh` | 追踪本机 Claude Code / Codex plan usage 和燃烧节奏。 |
 
 > **提示：** 如果你的菜单栏比较拥挤，可以安装 [Dozer](https://github.com/Mortennn/Dozer)（免费开源）来隐藏不常用的图标，让 Burn AI 的信息更突出。
 
-![三件套总览：Provider 路由、tab 颜色压迫和 plan usage 节奏控制](assets/readme/toolkit-overview.png)
+## 手动安装
+
+```bash
+git clone https://github.com/hanzhangzzz/burnkit.git
+cd burnkit
+
+bin/burnkit doctor
+bin/burnkit install router
+pip3 install iterm2
+bin/burnkit install tabs
+bin/burnkit install burn
+```
+
+![burnkit install all --dry-run](assets/demo-install.gif)
+
+然后编辑 Provider 配置：
+
+```bash
+$EDITOR tools/claude-provider-router/config.env
+```
+
+Provider 配置模板在 `tools/claude-provider-router/config.env.example`，不是仓库根目录的 `config.env.example`。
+
+通过短命令启动 Claude Code：
+
+```bash
+c 0
+c team 2 0
+```
+
+查看 plan 燃烧状态：
+
+```bash
+bin/burnkit status --refresh
+```
 
 ## 让你的 Agent 自动安装
 
@@ -52,38 +82,6 @@ BurnKit 先把这些东西变成信号。等信号多到你接不住，你就会
 ```
 
 重点是：`config.env` 里是 Provider token。合格的 agent 必须在它已存在时原样保留。
-
-## 手动安装
-
-```bash
-git clone https://github.com/doingdd/iterm2-claude-tab-color.git burnkit
-cd burnkit
-
-bin/burnkit doctor
-bin/burnkit install router
-pip3 install iterm2
-bin/burnkit install tabs
-bin/burnkit install burn
-```
-
-然后编辑 Provider 配置：
-
-```bash
-$EDITOR tools/claude-provider-router/config.env
-```
-
-通过短命令启动 Claude Code：
-
-```bash
-c 0
-c team 2 0
-```
-
-查看 plan 燃烧状态：
-
-```bash
-bin/burnkit status --refresh
-```
 
 ## 它制造的循环
 
@@ -137,8 +135,6 @@ bin/burnkit status --refresh
 | 白色 | 当前 tab、处理中，或干净状态 | 这里暂时不需要注意 |
 
 只有非当前 tab 会变色。你正在看的 tab 保持白色，因为提示应该指向你没看到的地方。
-
-![tab 颜色从白色到绿色、黄色、红色，再在用户响应后回到白色](assets/readme/tab-color-escalation.png)
 
 ## 项目结构
 

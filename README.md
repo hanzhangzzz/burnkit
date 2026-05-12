@@ -6,7 +6,7 @@
 
 BurnKit is a three-tool kit for developers running Claude Code and Codex in parallel. It routes work to the right provider, colors idle terminal tabs when AI is waiting for you, and tracks plan burn before expensive windows quietly evaporate.
 
-Chinese spirit name: `卷死你三件套`.
+Chinese spirit name: `卷王三件套`.
 
 This is not about going productivity-crazy, and it is not about making you go crazy either.
 
@@ -16,23 +16,58 @@ BurnKit turns those hidden costs into signals. When the signals become too many 
 
 That is the harness entrance.
 
-![burnkit status — real-time plan usage and burn pace](assets/demo-status.gif)
-
 ## What You Get
 
-| Tool | Command | Job | Why It Exists |
-|------|---------|-----|---------------|
-| Claude Provider Router | `c 0` | Start Claude Code through numbered providers and route Agent Team leader/teammate traffic | Put the right job on the right model, endpoint, and quota |
-| iTerm2 Tab Color | `burnkit install tabs` | Color inactive Claude Code / Codex tabs when they are waiting for you | Turn forgotten prompts into visible pressure |
-| Burn AI | `burnkit status --refresh` | Track local Claude Code / Codex plan usage and burn pace | Stop wasting expensive windows without blindly maxing every cycle |
-
-![Claude Provider Router — switch Claude Code model lanes and split team traffic](assets/launch/c-router-launch.gif)
-
-![SwiftBar menubar — Codex and Claude burn pace at a glance](assets/menubar-screenshot.png)
+| Tool | Effect | Main command | What it does |
+|------|--------|---------------|--------------|
+| Claude Provider Router | <img src="assets/launch/c-router-launch.gif" alt="Claude Provider Router switches Claude Code model lanes and splits team traffic" width="320"> | `c 0`<br>`c team 2 0` | Starts Claude Code through numbered providers and routes Agent Team leader/teammate traffic. |
+| iTerm2 Tab Color | <img src="assets/demo-tab-color.gif" alt="iTerm2 tab colors show green, yellow, and red idle indicators" width="320"> | `burnkit install tabs` | Colors inactive Claude Code / Codex tabs when they are waiting for you. |
+| Burn AI | <img src="assets/menubar-screenshot.png" alt="SwiftBar menubar shows Codex and Claude burn pace at a glance" width="320"> | `burnkit status --refresh` | Tracks local Claude Code / Codex plan usage and burn pace. |
 
 > **Tip:** If your menu bar gets crowded, consider a free tool like [Dozer](https://github.com/Mortennn/Dozer) to hide less-used icons and keep the Burn AI menubar signal front and center.
 
+## Install
+
+```bash
+npx burnkit install all
+```
+
 ![burnkit install all --dry-run](assets/demo-install.gif)
+
+Or from source:
+
+```bash
+git clone https://github.com/hanzhangzzz/burnkit.git
+cd burnkit
+bin/burnkit install all
+```
+
+Then edit your provider config:
+
+```bash
+$EDITOR tools/claude-provider-router/config.env
+```
+
+The provider template lives at `tools/claude-provider-router/config.env.example`.
+
+Run Claude Code through the short router command:
+
+```bash
+c 0
+c team 2 0
+```
+
+Check plan burn:
+
+```bash
+burnkit status --refresh
+```
+
+Uninstall everything:
+
+```bash
+burnkit uninstall all
+```
 
 ## Let Your Agent Install It
 
@@ -54,45 +89,6 @@ Rules:
 ```
 
 The important part: `config.env` contains provider tokens. A correct agent must preserve it if it already exists.
-
-## Install
-
-```bash
-npx burnkit install all
-```
-
-Or from source:
-
-```bash
-git clone https://github.com/hanzhangzzz/burnkit.git
-cd burnkit
-bin/burnkit install all
-```
-
-Then edit your provider config:
-
-```bash
-$EDITOR tools/claude-provider-router/config.env
-```
-
-Run Claude Code through the short router command:
-
-```bash
-c 0
-c team 2 0
-```
-
-Check plan burn:
-
-```bash
-burnkit status --refresh
-```
-
-Uninstall everything:
-
-```bash
-burnkit uninstall all
-```
 
 ## The Loop It Creates
 
@@ -145,8 +141,6 @@ Each tool still owns its own runtime files, safety checks, and uninstall path.
 | White | Active tab, processing, or clean state | No attention needed here |
 
 Only inactive tabs get colored. The tab you are looking at stays white because notifications should point at what you are missing.
-
-![iTerm2 tab colors — green, yellow, red idle indicators](assets/demo-tab-color.gif)
 
 ## Repository Layout
 
