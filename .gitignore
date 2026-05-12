@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .DS_Store
+.tmp/
 .serena/
 *.tab-color-daemon.plist
 raw_think.md

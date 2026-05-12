@@ -22,9 +22,11 @@ That is the harness entrance.
 
 | Tool | Command | Job | Why It Exists |
 |------|---------|-----|---------------|
-| Claude Provider Router | `burnkit router 0` | Start Claude Code through numbered providers and route Agent Team leader/teammate traffic | Put the right job on the right model, endpoint, and quota |
+| Claude Provider Router | `c 0` | Start Claude Code through numbered providers and route Agent Team leader/teammate traffic | Put the right job on the right model, endpoint, and quota |
 | iTerm2 Tab Color | `burnkit install tabs` | Color inactive Claude Code / Codex tabs when they are waiting for you | Turn forgotten prompts into visible pressure |
 | Burn AI | `burnkit status --refresh` | Track local Claude Code / Codex plan usage and burn pace | Stop wasting expensive windows without blindly maxing every cycle |
+
+![Claude Provider Router — switch Claude Code model lanes and split team traffic](assets/launch/c-router-launch.gif)
 
 ![SwiftBar menubar — Codex and Claude burn pace at a glance](assets/menubar-screenshot.png)
 
@@ -73,11 +75,11 @@ Then edit your provider config:
 $EDITOR tools/claude-provider-router/config.env
 ```
 
-Run Claude Code through BurnKit:
+Run Claude Code through the short router command:
 
 ```bash
-burnkit router 0
-burnkit router team 7 0
+c 0
+c team 2 0
 ```
 
 Check plan burn:
@@ -120,13 +122,14 @@ Exactly. You start harnessing.
 | Command | Purpose |
 |---------|---------|
 | `burnkit doctor` | Check local prerequisites and tool readiness |
-| `burnkit install router` | Run the router internal installer; create `config.env` from the template only when missing |
+| `burnkit install router` | Run the router internal installer; create `config.env` from the template only when missing, and install the `c` shim |
 | `burnkit install tabs` | Install iTerm2 Tab Color through the unified BurnKit entrypoint |
 | `burnkit install burn` | Install/build Burn AI, then run `burn-ai install` |
 | `burnkit install all` | Install CLI shim, router, tab color, and Burn AI in order |
 | `burnkit uninstall all` | Uninstall tab color, Burn AI, and CLI shim |
-| `burnkit router 0` | Start Claude Code through provider config `0` |
-| `burnkit router team 7 0` | Start Agent Team routing: leader on `7`, teammate on `0` |
+| `c 0` | Start Claude Code through provider config `0` |
+| `c team 2 0` | Start Agent Team routing: leader on `2`, teammate on `0` |
+| `burnkit router 0` | Long-form compatibility wrapper for `c 0` |
 | `burnkit burn doctor` | Forward to Burn AI CLI |
 | `burnkit status --refresh` | Refresh and print plan usage state |
 

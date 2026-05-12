@@ -22,9 +22,11 @@ BurnKit 先把这些东西变成信号。等信号多到你接不住，你就会
 
 | 工具 | 命令 | 职责 | 为什么需要它 |
 |------|------|------|--------------|
-| Claude Provider Router | `bin/burnkit router 0` | 用编号 Provider 启动 Claude Code，并支持 Agent Team leader/teammate 分流 | 把正确任务放到正确模型、endpoint 和额度上 |
+| Claude Provider Router | `c 0` | 用编号 Provider 启动 Claude Code，并支持 Agent Team leader/teammate 分流 | 把正确任务放到正确模型、endpoint 和额度上 |
 | iTerm2 Tab Color | `bin/burnkit install tabs` | Claude Code / Codex 等你时，把非当前 iTerm2 tab 染色 | 把被遗忘的 prompt 变成可见压力 |
 | Burn AI | `bin/burnkit status --refresh` | 追踪本机 Claude Code / Codex plan usage 和燃烧节奏 | 别浪费昂贵窗口，也别每个周期无脑打满 |
+
+![Claude Provider Router：用 c 短命令切换模型，并让 Team leader 和 teammate 走不同 Provider](assets/launch/c-router-launch.gif)
 
 > **提示：** 如果你的菜单栏比较拥挤，可以安装 [Dozer](https://github.com/Mortennn/Dozer)（免费开源）来隐藏不常用的图标，让 Burn AI 的信息更突出。
 
@@ -70,11 +72,11 @@ bin/burnkit install burn
 $EDITOR tools/claude-provider-router/config.env
 ```
 
-通过 BurnKit 启动 Claude Code：
+通过短命令启动 Claude Code：
 
 ```bash
-bin/burnkit router 0
-bin/burnkit router team 7 0
+c 0
+c team 2 0
 ```
 
 查看 plan 燃烧状态：
@@ -113,12 +115,13 @@ bin/burnkit status --refresh
 | 命令 | 用途 |
 |------|------|
 | `bin/burnkit doctor` | 检查本机依赖和三个工具的就绪状态 |
-| `bin/burnkit install router` | 执行 router 内部安装器；仅在缺少 `config.env` 时从模板创建 Provider 配置 |
+| `bin/burnkit install router` | 执行 router 内部安装器；仅在缺少 `config.env` 时从模板创建 Provider 配置，并安装 `c` 短命令 |
 | `bin/burnkit install tabs` | 通过 BurnKit 统一入口安装 iTerm2 Tab Color |
 | `bin/burnkit install burn` | 安装/build Burn AI，然后执行 `burn-ai install` |
 | `bin/burnkit install all` | 依次执行 router setup、tab color install、Burn AI install |
-| `bin/burnkit router 0` | 用 Provider 配置 `0` 启动 Claude Code |
-| `bin/burnkit router team 7 0` | 启动 Agent Team 路由：leader 用 `7`，teammate 用 `0` |
+| `c 0` | 用 Provider 配置 `0` 启动 Claude Code |
+| `c team 2 0` | 启动 Agent Team 路由：leader 用 `2`，teammate 用 `0` |
+| `bin/burnkit router 0` | `c 0` 的长入口兼容写法 |
 | `bin/burnkit burn doctor` | 转发到 Burn AI CLI |
 | `bin/burnkit status --refresh` | 刷新并打印 plan usage 状态 |
 

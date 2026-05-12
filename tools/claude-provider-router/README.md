@@ -22,10 +22,10 @@
 
 ```bash
 bin/burnkit install router
-bin/burnkit router 0
+c 0
 ```
 
-`install-core.sh` 只在 `config.env` 缺失时从 `config.env.example` 创建并设置权限为 `600`。如果 `config.env` 已经存在，重复安装必须原样保留内容和权限。
+`install-core.sh` 只在 `config.env` 缺失时从 `config.env.example` 创建并设置权限为 `600`。如果 `config.env` 已经存在，重复安装必须原样保留内容和权限。安装器还会把 `c` 安装为 `~/.local/bin/c` 软链；如果该路径已有用户自己的命令，会跳过不覆盖。
 
 如果只使用本工具，也可以手动配置：
 
@@ -86,10 +86,10 @@ brew install jq
 从仓库根目录：
 
 ```bash
-bin/burnkit router 0
-bin/burnkit router 7 --resume
-bin/burnkit router team 7 0
-bin/burnkit router router status
+c 0
+c 2 --resume
+c team 2 0
+c router status
 ```
 
 从本目录：
@@ -101,18 +101,18 @@ bin/burnkit router router status
 # 使用配置 0 启动
 ./c 0
 
-# 使用配置 7 并恢复会话
-./c 7 --resume
+# 使用配置 2 并恢复会话
+./c 2 --resume
 
-# Team 模式：leader 用 7，teammate 用 0
-./c team 7 0
+# Team 模式：leader 用 2，teammate 用 0
+./c team 2 0
 
 # 查看或停止路由代理
 ./c router status
 ./c router stop
 ```
 
-如果要全局使用 `c`，可以自行创建软链到 PATH 中：
+如果要手动创建全局 `c` 软链：
 
 ```bash
 mkdir -p "$HOME/.local/bin"

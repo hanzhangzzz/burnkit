@@ -26,6 +26,7 @@ Checks:
 
 Real mode modifies local machine state:
   - tools/claude-provider-router/config.env
+  - ~/.local/bin/c
   - ~/.claude/hooks and ~/.codex/hooks
   - ~/.claude/settings.json and ~/.codex/hooks.json
   - ~/Library/LaunchAgents
@@ -124,6 +125,7 @@ verify_router_config_preservation() {
     section "Router config.env preservation"
     local temp_dir
     temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/burnkit-router-preserve.XXXXXX")"
+    temp_dir="$(cd "$temp_dir" && pwd)"
 
     mkdir -p "$temp_dir/bin" "$temp_dir/tools/claude-provider-router"
     cp "$REPO_ROOT/bin/burnkit" "$temp_dir/bin/burnkit"
@@ -131,6 +133,7 @@ verify_router_config_preservation() {
     cp "$REPO_ROOT/tools/claude-provider-router/install-core.sh" "$temp_dir/tools/claude-provider-router/install-core.sh"
     cp "$REPO_ROOT/tools/claude-provider-router/config.env.example" "$temp_dir/tools/claude-provider-router/config.env.example"
     chmod +x "$temp_dir/bin/burnkit" "$temp_dir/tools/claude-provider-router/c" "$temp_dir/tools/claude-provider-router/install-core.sh"
+    mkdir -p "$temp_dir/home/.local/bin"
 
     local config="$temp_dir/tools/claude-provider-router/config.env"
     cat > "$config" <<'EOF'
@@ -144,21 +147,23 @@ EOF
     before_hash="$(sha256_file "$config")"
     before_mode="$(stat -f '%Lp' "$config")"
 
-    run "$temp_dir/bin/burnkit" install router >/dev/null
+    run env BURNKIT_C_SHIM_DIR="$temp_dir/home/.local/bin" "$temp_dir/bin/burnkit" install router >/dev/null
 
     after_hash="$(sha256_file "$config")"
     after_mode="$(stat -f '%Lp' "$config")"
     [ "$before_hash" = "$after_hash" ] || fail "existing config.env was modified"
     [ "$before_mode" = "$after_mode" ] || fail "existing config.env mode changed: $before_mode -> $after_mode"
     grep -q "do-not-overwrite-this-token" "$config" || fail "sentinel token missing after router install"
+    assert_symlink_target "$temp_dir/home/.local/bin/c" "$temp_dir/tools/claude-provider-router/c"
     rm -rf "$temp_dir"
-    pass "existing config.env is preserved byte-for-byte"
+    pass "existing config.env is preserved byte-for-byte and c shim is installed"
 }
 
 verify_router_config_creation() {
     section "Router config.env creation"
     local temp_dir
     temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/burnkit-router-create.XXXXXX")"
+    temp_dir="$(cd "$temp_dir" && pwd)"
 
     mkdir -p "$temp_dir/bin" "$temp_dir/tools/claude-provider-router"
     cp "$REPO_ROOT/bin/burnkit" "$temp_dir/bin/burnkit"
@@ -166,15 +171,17 @@ verify_router_config_creation() {
     cp "$REPO_ROOT/tools/claude-provider-router/install-core.sh" "$temp_dir/tools/claude-provider-router/install-core.sh"
     cp "$REPO_ROOT/tools/claude-provider-router/config.env.example" "$temp_dir/tools/claude-provider-router/config.env.example"
     chmod +x "$temp_dir/bin/burnkit" "$temp_dir/tools/claude-provider-router/c" "$temp_dir/tools/claude-provider-router/install-core.sh"
+    mkdir -p "$temp_dir/home/.local/bin"
 
     local config="$temp_dir/tools/claude-provider-router/config.env"
-    run "$temp_dir/bin/burnkit" install router >/dev/null
+    run env BURNKIT_C_SHIM_DIR="$temp_dir/home/.local/bin" "$temp_dir/bin/burnkit" install router >/dev/null
 
     assert_file "$config"
     [ "$(stat -f '%Lp' "$config")" = "600" ] || fail "created config.env mode is not 600"
     cmp -s "$temp_dir/tools/claude-provider-router/config.env.example" "$config" || fail "created config.env does not match template"
+    assert_symlink_target "$temp_dir/home/.local/bin/c" "$temp_dir/tools/claude-provider-router/c"
     rm -rf "$temp_dir"
-    pass "missing config.env is created from template with mode 600"
+    pass "missing config.env is created from template with mode 600 and c shim is installed"
 }
 
 verify_dry_run_installs() {
@@ -200,6 +207,7 @@ verify_real_router() {
 
     run "$REPO_ROOT/bin/burnkit" install router
     assert_file "$config"
+    assert_symlink_target "$HOME/.local/bin/c" "$REPO_ROOT/tools/claude-provider-router/c"
     [ "$(stat -f '%Lp' "$config")" = "600" ] || fail "config.env mode is not 600"
     if [ "$existed" -eq 1 ]; then
         local after_hash

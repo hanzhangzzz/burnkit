@@ -40,7 +40,8 @@ Examples:
   bin/burnkit install tabs --dry-run --skip-python-check
   bin/burnkit install tabs
   bin/burnkit install burn --dry-run
-  bin/burnkit router 0 --resume
+  c 0
+  c team 2 0
   bin/burnkit status --refresh
 EOF
 }

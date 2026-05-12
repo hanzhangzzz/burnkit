@@ -22,6 +22,7 @@ Usage:
 
 This creates tools/claude-provider-router/config.env from config.env.example
 when it is missing. Existing config.env is preserved byte-for-byte.
+It also installs a c shim into ~/.local/bin when that path is available.
 EOF
 }
 
@@ -31,6 +32,10 @@ log() {
 
 ok() {
     printf 'OK  %s\n' "$1"
+}
+
+warn() {
+    printf 'WARN %s\n' "$1"
 }
 
 die() {
@@ -53,6 +58,37 @@ parse_args() {
     done
 }
 
+install_c_shim() {
+    local shim_dir="${BURNKIT_C_SHIM_DIR:-$HOME/.local/bin}"
+    local shim="$shim_dir/c"
+    local target="$SCRIPT_DIR/c"
+
+    if [ -L "$shim" ] && [ "$(readlink "$shim")" = "$target" ]; then
+        ok "c shim already installed: $shim"
+        return 0
+    fi
+
+    if [ -e "$shim" ]; then
+        warn "c command already exists and is not a managed shim: $shim"
+        warn "skipping c shim; run directly with: $target"
+        return 0
+    fi
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        log "[dry-run] would install c shim: $shim -> $target"
+        return 0
+    fi
+
+    mkdir -p "$shim_dir"
+    ln -sf "$target" "$shim"
+    ok "installed c shim: $shim -> $target"
+
+    case ":${PATH}:" in
+        *":$shim_dir:"*) ;;
+        *) warn "add $shim_dir to PATH to use: c 0" ;;
+    esac
+}
+
 main() {
     parse_args "$@"
 
@@ -63,19 +99,17 @@ main() {
 
     if [ -f "$target" ]; then
         ok "router config already exists: $target"
-        return 0
-    fi
-
-    if [ "$DRY_RUN" -eq 1 ]; then
+    elif [ "$DRY_RUN" -eq 1 ]; then
         log "[dry-run] would copy $example -> $target"
         log "[dry-run] would chmod 600 $target"
-        return 0
+    else
+        cp "$example" "$target"
+        chmod 600 "$target"
+        ok "created router config: $target"
+        log "WARN edit $target before running: c 0"
     fi
 
-    cp "$example" "$target"
-    chmod 600 "$target"
-    ok "created router config: $target"
-    log "WARN edit $target before running: $REPO_ROOT/bin/burnkit router 0"
+    install_c_shim
 }
 
 main "$@"
