@@ -97,14 +97,11 @@ install_tabs() {
 }
 
 ensure_burn_ai_ready() {
+    local force_build="${1:-0}"
     [ -d "$BURN_AI_DIR" ] || die "missing Burn AI directory: $BURN_AI_DIR"
     require_file "$BURN_AI_DIR/package.json"
 
     has_command node || die "node is required for Burn AI"
-
-    if [ -x "$BURN_AI_DIR/dist/cli.js" ]; then
-        return 0
-    fi
 
     has_command npm || die "npm is required to build Burn AI"
 
@@ -113,24 +110,27 @@ ensure_burn_ai_ready() {
         (cd "$BURN_AI_DIR" && npm install)
     fi
 
-    section "Building Burn AI"
-    (cd "$BURN_AI_DIR" && npm run build)
+    if [ "$force_build" = "1" ] || [ ! -x "$BURN_AI_DIR/dist/cli.js" ]; then
+        section "Building Burn AI"
+        (cd "$BURN_AI_DIR" && npm run build)
+    fi
 }
 
 run_burn_ai() {
-    ensure_burn_ai_ready
+    ensure_burn_ai_ready 0
     (cd "$BURN_AI_DIR" && npx --no-install burn-ai "$@")
 }
 
 install_burn() {
-    if has_arg "--dry-run" "$@" && [ ! -x "$BURN_AI_DIR/dist/cli.js" ]; then
+    if has_arg "--dry-run" "$@"; then
         section "Burn AI dry run"
         printf '[dry-run] would run npm install in %s when dependencies are missing\n' "$BURN_AI_DIR"
-        printf '[dry-run] would run npm run build in %s when dist/cli.js is missing\n' "$BURN_AI_DIR"
+        printf '[dry-run] would run npm run build in %s before local install\n' "$BURN_AI_DIR"
         printf '[dry-run] would run npx --no-install burn-ai install %s\n' "$*"
         return 0
     fi
-    run_burn_ai install "$@"
+    ensure_burn_ai_ready 1
+    (cd "$BURN_AI_DIR" && npx --no-install burn-ai install "$@")
 }
 
 install_cli_shim() {
@@ -183,7 +183,7 @@ uninstall_tabs() {
 }
 
 uninstall_burn() {
-    ensure_burn_ai_ready
+    ensure_burn_ai_ready 0
     (cd "$BURN_AI_DIR" && npx --no-install burn-ai uninstall "$@")
 }
 

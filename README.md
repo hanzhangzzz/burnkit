@@ -219,6 +219,8 @@ npx --no-install burn-ai menubar render
 git diff --check
 ```
 
+When installing Burn AI from this repository, prefer `bin/burnkit install burn` or `bin/burnkit install all`; those paths rebuild `tools/burn-ai` before copying the runtime into `~/.burn-ai/app`.
+
 ## License
 
 [MIT](LICENSE)

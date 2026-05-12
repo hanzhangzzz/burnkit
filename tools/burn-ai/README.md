@@ -43,6 +43,7 @@ burn-ai status
 `burn-ai install` is designed to be repeatable.
 
 - From `npx burn-ai install` or `npx --no-install burn-ai install`, it copies the current package into `~/.burn-ai/app` through a temporary directory, then restarts launchd.
+- From a BurnKit source checkout, `bin/burnkit install burn` and `bin/burnkit install all` rebuild `tools/burn-ai` before running the package installer, so local TypeScript changes do not leave an old `dist/` in the installed runtime.
 - From the installed shim `burn-ai install`, it detects that it is already running from `~/.burn-ai/app`, skips runtime self-copy, and still refreshes the CLI shim, SwiftBar plugin, and launchd agent.
 - The launchd job runs `~/.burn-ai/app/dist/cli.js daemon --once` every 300 seconds.
 - The installer does not overwrite user-managed Claude Code status line scripts. If one already exists, it asks before installing a Burn AI wrapper around it.
