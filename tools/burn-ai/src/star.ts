@@ -17,6 +17,7 @@ interface StarPromptOptions {
   dryRun: boolean;
   isInteractive?: boolean;
   env?: Record<string, string | undefined>;
+  canStarWithGh?: boolean | (() => boolean);
   confirmStar?: (prompt: string) => boolean;
   starRepo?: (repo: string) => void;
   now?: () => Date;
@@ -48,13 +49,62 @@ function defaultConfirmStar(prompt: string) {
   }
 }
 
+export function ghStarArgs(repo: string) {
+  return [
+    "api",
+    "--method",
+    "PUT",
+    `/user/starred/${repo}`,
+    "--silent",
+  ];
+}
+
+export function ghAuthStatusArgs() {
+  return ["auth", "status", "-h", "github.com"];
+}
+
+function commandErrorMessage(error: unknown) {
+  if (error && typeof error === "object") {
+    const stderr = (error as { stderr?: Buffer | string }).stderr;
+    if (Buffer.isBuffer(stderr)) {
+      const message = stderr.toString("utf8").trim();
+      if (message) {
+        return message;
+      }
+    }
+    if (typeof stderr === "string" && stderr.trim()) {
+      return stderr.trim();
+    }
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 function defaultStarRepo(repo: string) {
-  execFileSync("gh", ["repo", "star", repo], { stdio: "ignore" });
+  execFileSync("gh", ghStarArgs(repo), { stdio: "pipe" });
+}
+
+function defaultCanStarWithGh() {
+  try {
+    execFileSync("gh", ghAuthStatusArgs(), { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function canStarWithGh(options: StarPromptOptions) {
+  if (typeof options.canStarWithGh === "boolean") {
+    return options.canStarWithGh;
+  }
+  if (typeof options.canStarWithGh === "function") {
+    return options.canStarWithGh();
+  }
+  return defaultCanStarWithGh();
 }
 
 function hasPromptState(paths: RuntimePaths) {
   const state = readJsonFile<StarPromptState>(paths.starPromptFile);
-  return state?.repo === REPO && (state.response === "accepted" || state.response === "declined");
+  return state?.repo === REPO && (state.outcome === "starred" || state.outcome === "skipped");
 }
 
 export function maybePromptForStar(paths: RuntimePaths, options: StarPromptOptions) {
@@ -63,6 +113,9 @@ export function maybePromptForStar(paths: RuntimePaths, options: StarPromptOptio
     return [];
   }
   if (options.isInteractive === undefined && !defaultIsInteractive()) {
+    return [];
+  }
+  if (!canStarWithGh(options)) {
     return [];
   }
 
@@ -88,7 +141,7 @@ export function maybePromptForStar(paths: RuntimePaths, options: StarPromptOptio
     return ["Starred BurnKit on GitHub."];
   } catch (error) {
     state.outcome = "failed";
-    state.error = error instanceof Error ? error.message : String(error);
+    state.error = commandErrorMessage(error);
     writeJsonAtomic(paths.starPromptFile, state);
     return [`Could not star BurnKit with gh: ${state.error}`];
   }
