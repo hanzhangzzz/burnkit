@@ -259,7 +259,15 @@ async def is_claude_running(session) -> bool:
     return await is_agent_running(session, "claude")
 
 
-async def apply_tab_color(connection, iterm2_session_id: str, color, *, app=None, session=None):
+async def apply_tab_color(
+    connection,
+    iterm2_session_id: str,
+    color,
+    *,
+    app=None,
+    session=None,
+    applied_colors: Optional[dict] = None,
+):
     """
     给同一 tab 下所有 pane 都设 tab color。
     color=None 表示重置（恢复默认色）。
@@ -277,6 +285,11 @@ async def apply_tab_color(connection, iterm2_session_id: str, color, *, app=None
 
     target_tab = session.tab
     target_sessions = [session] if target_tab is None else list(target_tab.sessions)
+    tab_id = session.session_id if target_tab is None else target_tab.tab_id
+    desired_state = _applied_tab_color_state(target_sessions, color)
+
+    if applied_colors is not None and applied_colors.get(tab_id) == desired_state:
+        return
 
     for s in target_sessions:
         change = iterm2.LocalWriteOnlyProfile()
@@ -287,6 +300,9 @@ async def apply_tab_color(connection, iterm2_session_id: str, color, *, app=None
             change.set_use_tab_color(True)
         await s.async_set_profile_properties(change)
         await write_tab_color_escape(s, color)
+
+    if applied_colors is not None:
+        applied_colors[tab_id] = desired_state
 
 
 def compute_color_stage(idle_seconds: float) -> str:
@@ -313,6 +329,20 @@ def _color_attr(color, primary: str, fallback: str):
     if hasattr(color, primary):
         return getattr(color, primary)
     return getattr(color, fallback)
+
+
+def _tab_color_cache_value(color: Optional[iterm2.Color]):
+    if color is None:
+        return ("default",)
+    red = _color_attr(color, "red", "r")
+    green = _color_attr(color, "green", "g")
+    blue = _color_attr(color, "blue", "b")
+    return ("rgb", _color_component(red), _color_component(green), _color_component(blue))
+
+
+def _applied_tab_color_state(target_sessions: list, color: Optional[iterm2.Color]):
+    session_ids = tuple(str(getattr(session, "session_id", "")) for session in target_sessions)
+    return session_ids, _tab_color_cache_value(color)
 
 
 def escape_sequences_for_tab_color(color: Optional[iterm2.Color]) -> list[str]:
@@ -459,6 +489,7 @@ async def watch_idle_dir(connection):
     - 无 state 文件（刚删除）     → 重置（白色）
     """
     known: dict[str, dict] = {}
+    applied_colors: dict = {}
     last_exit_check = 0.0
 
     # 启动恢复：对所有已有文件按当前空闲时长设色
@@ -474,7 +505,7 @@ async def watch_idle_dir(connection):
         known[path] = state
 
     # 启动后立即做一次全量上色
-    await _apply_all_colors(connection)
+    await _apply_all_colors(connection, applied_colors=applied_colors)
     await reset_untracked_tab_colors(connection, known)
 
     while True:
@@ -503,7 +534,7 @@ async def watch_idle_dir(connection):
             known = current
 
             # 全量刷新颜色：每个 state 文件根据 活跃/非活跃 决定颜色
-            await _apply_all_colors(connection, states=current, app=app)
+            await _apply_all_colors(connection, states=current, app=app, applied_colors=applied_colors)
 
             current_tab_prefixes = {
                 prefix
@@ -514,7 +545,7 @@ async def watch_idle_dir(connection):
             # 重置已消失的 session；同 tab 仍有其他 idle state 时不能把整 tab 变白
             for sid in disappeared:
                 if extract_tab_prefix(sid) not in current_tab_prefixes:
-                    await apply_tab_color(connection, sid, None)
+                    await apply_tab_color(connection, sid, None, applied_colors=applied_colors)
 
         except Exception as e:
             log(f"watch 出错: {e}")
@@ -523,7 +554,7 @@ async def watch_idle_dir(connection):
                 return
 
 
-async def _apply_all_colors(connection, *, states=None, app=None):
+async def _apply_all_colors(connection, *, states=None, app=None, applied_colors=None):
     """读所有 state 文件，根据 color_stage + is_active 统一应用颜色。"""
     if states is None:
         states = read_state_files()
@@ -556,10 +587,24 @@ async def _apply_all_colors(connection, *, states=None, app=None):
 
     for tab_state in tabs.values():
         if tab_state["active"]:
-            await apply_tab_color(connection, tab_state["sid"], None, app=app, session=tab_state["session"])
+            await apply_tab_color(
+                connection,
+                tab_state["sid"],
+                None,
+                app=app,
+                session=tab_state["session"],
+                applied_colors=applied_colors,
+            )
         else:
             color = color_for_stage(tab_state["stage"])
-            await apply_tab_color(connection, tab_state["sid"], color, app=app, session=tab_state["session"])
+            await apply_tab_color(
+                connection,
+                tab_state["sid"],
+                color,
+                app=app,
+                session=tab_state["session"],
+                applied_colors=applied_colors,
+            )
 
 
 # ------------------------------------------------------------------ #

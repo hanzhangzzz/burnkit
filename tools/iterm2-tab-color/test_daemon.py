@@ -546,6 +546,8 @@ class TestApplyAllColors(unittest.TestCase):
         tab.sessions = [session]
         session.tab = tab
         session.session_id = f"session-{tab_id}"
+        session.async_set_profile_properties = AsyncMock()
+        session.async_get_variable = AsyncMock(return_value="/dev/ttys001")
         return session
 
     def test_same_tab_uses_most_severe_stage_once(self):
@@ -570,6 +572,48 @@ class TestApplyAllColors(unittest.TestCase):
         apply_mock.assert_called_once()
         _, args, _ = apply_mock.mock_calls[0]
         self.assertEqual(args[2], daemon.COLOR_RED)
+
+    def test_repeated_same_state_does_not_rewrite_tab_color(self):
+        """稳定 state 下第二轮不应重复触发 iTerm2 设色。"""
+        session = self._make_session("tab-1")
+        self.mock_app.get_session_by_id.return_value = session
+        states = {
+            "a.json": {"iterm2_session": "w0t0p0:UUID-1", "color_stage": "green"},
+        }
+        applied_colors = {}
+
+        import asyncio
+        with patch.object(daemon, "read_state_files", return_value=states), \
+             patch.object(daemon, "is_active_tab", return_value=False), \
+             patch.object(daemon, "_write_escape_to_tty") as write_escape:
+            asyncio.run(daemon._apply_all_colors(self.mock_conn, applied_colors=applied_colors))
+            asyncio.run(daemon._apply_all_colors(self.mock_conn, applied_colors=applied_colors))
+
+        self.assertEqual(session.async_set_profile_properties.call_count, 1)
+        self.assertEqual(write_escape.call_count, 1)
+
+    def test_stage_change_rewrites_tab_color_once(self):
+        """同一 tab 目标颜色变化时仍应重新设色。"""
+        session = self._make_session("tab-1")
+        self.mock_app.get_session_by_id.return_value = session
+        applied_colors = {}
+
+        import asyncio
+        with patch.object(daemon, "is_active_tab", return_value=False), \
+             patch.object(daemon, "_write_escape_to_tty") as write_escape:
+            asyncio.run(daemon._apply_all_colors(
+                self.mock_conn,
+                states={"a.json": {"iterm2_session": "w0t0p0:UUID-1", "color_stage": "green"}},
+                applied_colors=applied_colors,
+            ))
+            asyncio.run(daemon._apply_all_colors(
+                self.mock_conn,
+                states={"a.json": {"iterm2_session": "w0t0p0:UUID-1", "color_stage": "yellow"}},
+                applied_colors=applied_colors,
+            ))
+
+        self.assertEqual(session.async_set_profile_properties.call_count, 2)
+        self.assertEqual(write_escape.call_count, 2)
 
 
 class TestResetUntrackedTabColors(unittest.TestCase):
