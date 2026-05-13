@@ -7,6 +7,8 @@ import { loadDisplayStatusSnapshot } from "./runtime.js";
 import { runDaemonOnce } from "./daemon.js";
 import { doctorHasFailures, formatDoctor, runDoctor } from "./doctor.js";
 import { installMenuBar, renderMenuBar, uninstallMenuBar } from "./menubar.js";
+import { buildPaths } from "./paths.js";
+import { maybePromptForStar } from "./star.js";
 
 function hasFlag(args: string[], flag: string) {
   return args.includes(flag);
@@ -41,7 +43,14 @@ async function main() {
     }
 
     if (command === "install") {
-      console.log(install({ dryRun }).join("\n"));
+      const messages = install({ dryRun });
+      console.log(messages.join("\n"));
+      if (messages.some((message) => message.startsWith("Installed and restarted launchd agent:"))) {
+        const starMessages = maybePromptForStar(buildPaths(), { dryRun, env: process.env });
+        if (starMessages.length > 0) {
+          console.log(starMessages.join("\n"));
+        }
+      }
       return;
     }
 

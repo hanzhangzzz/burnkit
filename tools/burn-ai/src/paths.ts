@@ -12,6 +12,7 @@ export function buildPaths(homeDir = os.homedir()): RuntimePaths {
     codexDir: path.join(stateDir, "codex"),
     notificationStateFile: path.join(stateDir, "notifications.json"),
     statusFile: path.join(stateDir, "status.json"),
+    starPromptFile: path.join(stateDir, "star-prompt.json"),
     cliBinDir: path.join(homeDir, ".local", "bin"),
     cliBinFile: path.join(homeDir, ".local", "bin", "burn-ai"),
     swiftBarPluginDir: path.join(homeDir, "Library", "Application Support", "SwiftBar", "Plugins"),

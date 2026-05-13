@@ -53,6 +53,7 @@ export interface RuntimePaths {
   codexDir: string;
   notificationStateFile: string;
   statusFile: string;
+  starPromptFile: string;
   cliBinDir: string;
   cliBinFile: string;
   swiftBarPluginDir: string;

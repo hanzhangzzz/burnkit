@@ -501,7 +501,6 @@ export function renderMenuBar(snapshot: StatusSnapshot = loadDisplayStatusSnapsh
     refresh: true,
     color: TEXT_COLOR,
     sfimage: "arrow.clockwise",
-    shortcut: "CMD+R",
   }));
   return lines.join("\n");
 }

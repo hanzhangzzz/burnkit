@@ -114,7 +114,8 @@ test("renderMenuBar outputs SwiftBar-compatible status text", () => {
   assert.match(output, /5h\s+-{12}\s+0%\s+reset/);
   assert.match(output, /7d\s+#{4}-{8}\s+35%\s+reset/);
   assert.match(output, /WARNING  Claude not connected \| color=#FF9F0A,#FFD60A size=13 sfimage=exclamationmark\.triangle\.fill/);
-  assert.match(output, /Refresh now \| refresh=true color=#111827,#F9FAFB sfimage=arrow\.clockwise shortcut=CMD\+R/);
+  assert.match(output, /Refresh now \| refresh=true color=#111827,#F9FAFB sfimage=arrow\.clockwise/);
+  assert.doesNotMatch(output, /shortcut=/);
 });
 
 test("renderMenuBar title keeps provider icons scoped to their usage segments", () => {
