@@ -9,6 +9,7 @@ tab_color_daemon.py 纯逻辑测试
 
 import json
 import os
+import subprocess
 import time
 import tempfile
 import unittest
@@ -927,6 +928,111 @@ class TestPollerDecisionLogic(unittest.TestCase):
                 # 两次都应该是 red（已经过了阈值）
                 self.assertEqual(stage1, "red")
                 self.assertEqual(stage2, "red")
+
+
+# ================================================================== #
+#  tab_color_hook.sh — Codex / tmux iTerm session 映射
+# ================================================================== #
+
+class TestTabColorHookScript(unittest.TestCase):
+    """Hook shell 层回归：Codex 在 tmux/OMX 中不能使用 stale ITERM_SESSION_ID。"""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.home = Path(self.tmpdir) / "home"
+        self.home.mkdir()
+        self.fake_bin = Path(self.tmpdir) / "bin"
+        self.fake_bin.mkdir()
+        self.hook = PROJECT_DIR / "tab_color_hook.sh"
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _write_fake_tmux_and_ps(self, real_iterm_session: str):
+        tmux = self.fake_bin / "tmux"
+        tmux.write_text("""#!/bin/sh
+case "$1" in
+  display-message)
+    printf '%s\\n' 'omx-burnkit-main'
+    ;;
+  list-clients)
+    printf '%s\\n' '12345 /dev/ttys018'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+""")
+        tmux.chmod(0o755)
+
+        ps = self.fake_bin / "ps"
+        ps.write_text(f"""#!/bin/sh
+case "$*" in
+  *"12345"*"command="*)
+    printf '%s\\n' 'tmux attach-session ITERM_SESSION_ID={real_iterm_session} HOME=/Users/duying'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+""")
+        ps.chmod(0o755)
+
+    def _run_hook(self, agent: str, payload: dict, extra_env: dict[str, str]):
+        env = os.environ.copy()
+        env.update({
+            "HOME": str(self.home),
+            "PATH": f"{self.fake_bin}{os.pathsep}{env.get('PATH', '')}",
+        })
+        env.update(extra_env)
+        return subprocess.run(
+            ["bash", str(self.hook), "--agent", agent],
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            env=env,
+            cwd=str(PROJECT_DIR),
+            timeout=5,
+        )
+
+    def _read_state(self, filename: str):
+        path = self.home / ".claude" / "idle_state" / filename
+        self.assertTrue(path.exists(), f"missing state file: {path}")
+        return json.loads(path.read_text())
+
+    def test_codex_tmux_stop_uses_attached_client_iterm_session(self):
+        self._write_fake_tmux_and_ps("w0t9p1:REAL-UUID")
+
+        result = self._run_hook("codex", {
+            "hook_event_name": "Stop",
+            "session_id": "codex-session",
+        }, {
+            "TMUX": "/private/tmp/tmux-502/default,67925,4",
+            "ITERM_SESSION_ID": "w0t4p0:STALE-UUID",
+        })
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        state = self._read_state("codex-codex-session.json")
+        self.assertEqual(state["agent"], "codex")
+        self.assertEqual(state["iterm2_session"], "w0t9p1:REAL-UUID")
+
+    def test_claude_tmux_stop_keeps_existing_iterm_session(self):
+        self._write_fake_tmux_and_ps("w0t9p1:REAL-UUID")
+
+        result = self._run_hook("claude", {
+            "hook_event_name": "Stop",
+            "session_id": "claude-session",
+        }, {
+            "TMUX": "/private/tmp/tmux-502/default,67925,4",
+            "ITERM_SESSION_ID": "w0t4p0:STALE-UUID",
+        })
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = self._read_state("claude-session.json")
+        self.assertEqual(state["agent"], "claude")
+        self.assertEqual(state["iterm2_session"], "w0t4p0:STALE-UUID")
 
 
 # ================================================================== #

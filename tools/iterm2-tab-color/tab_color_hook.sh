@@ -62,8 +62,55 @@ find_agent_tty() {
     echo "$tty_dev"
 }
 
+extract_iterm_session_from_pid() {
+    local pid="$1"
+    [ -n "$pid" ] || return 0
+    ps eww -p "$pid" -o command= 2>/dev/null \
+        | tr ' ' '\n' \
+        | awk -F= '$1 == "ITERM_SESSION_ID" { sub(/^[^=]*=/, ""); print; exit }'
+}
+
+resolve_tmux_iterm_session_id() {
+    # Claude Code 的现有路径已经稳定，不在这里改动。
+    # Codex/OMX 常跑在 tmux 内；tmux server 会把创建时的 ITERM_SESSION_ID
+    # 继承给所有后续 pane，导致 hook state 指向错误的 iTerm2 pane。
+    # 因此仅 Codex + tmux 时，从当前 tmux session 的 attached client 进程
+    # 读取真实可见 iTerm2 pane 的 ITERM_SESSION_ID。
+    if [ "$AGENT" != "codex" ] || [ -z "${TMUX:-}" ]; then
+        printf '%s\n' "${ITERM_SESSION_ID:-}"
+        return 0
+    fi
+    command -v tmux >/dev/null 2>&1 || {
+        printf '%s\n' "${ITERM_SESSION_ID:-}"
+        return 0
+    }
+
+    local tmux_session
+    tmux_session="$(tmux display-message -p '#{session_name}' 2>/dev/null || true)"
+    if [ -z "$tmux_session" ]; then
+        printf '%s\n' "${ITERM_SESSION_ID:-}"
+        return 0
+    fi
+
+    local line client_pid resolved
+    while IFS= read -r line; do
+        client_pid="${line%% *}"
+        resolved="$(extract_iterm_session_from_pid "$client_pid")"
+        if [ -n "$resolved" ]; then
+            printf '%s\n' "$resolved"
+            return 0
+        fi
+    done <<EOF
+$(tmux list-clients -t "$tmux_session" -F '#{client_pid} #{client_tty}' 2>/dev/null || true)
+EOF
+
+    printf '%s\n' "${ITERM_SESSION_ID:-}"
+}
+
 # 获取 tty 路径，写 escape 码的函数
 TTY_DEV="$(find_agent_tty)"
+ITERM_SESSION_ID="$(resolve_tmux_iterm_session_id)"
+export ITERM_SESSION_ID
 
 write_escape() {
     local seq="$1"
