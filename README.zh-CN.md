@@ -13,12 +13,13 @@ BurnKit 现在是三个独立工具的项目导航页。它们面向并行 AI �
 保留的 CLI 只做只读导航和本机诊断：
 
 ```bash
-npm install -g burnkit
-burnkit projects
-burnkit doctor
+git clone https://github.com/hanzhangzzz/burnkit.git
+cd burnkit
+./bin/burnkit projects
+./bin/burnkit doctor
 ```
 
-从仓库 clone 运行时，也可以使用 `bin/burnkit projects` 和 `bin/burnkit doctor`。
+当前 npm 的 `burnkit@latest` 仍是旧的整合工具包（截至 2026-09-20 为 `0.1.2`），不包含这里的只读导航 CLI。请不要从 npm 安装 BurnKit；使用上面的仓库入口，并按各独立项目自己的命令安装。
 
 BurnKit 不再打包、安装、卸载或代理这三个工具。请使用各独立项目自己的命令和文档。
 

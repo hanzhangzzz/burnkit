@@ -13,12 +13,13 @@ BurnKit is the directory for three standalone tools built for parallel AI coding
 The remaining CLI is intentionally read-only:
 
 ```bash
-npm install -g burnkit
-burnkit projects
-burnkit doctor
+git clone https://github.com/hanzhangzzz/burnkit.git
+cd burnkit
+./bin/burnkit projects
+./bin/burnkit doctor
 ```
 
-From a repository clone, the same commands are available as `bin/burnkit projects` and `bin/burnkit doctor`.
+The npm `burnkit@latest` package is still the old bundled toolkit (`0.1.2` as of 2026-09-20) and does not contain this read-only directory CLI. Do not install BurnKit from npm; use the repository entry above and install each standalone project with its own command.
 
 BurnKit no longer bundles, installs, uninstalls, or proxies the three tools. Use each standalone project's own commands and documentation.
 
